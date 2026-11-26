@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f5ef">
+  <title>Cuestionarios | Banco de preguntas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="/vendor/exceljs.min.js" defer></script>
+  <script src="/shared/importer.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Navegación principal">
+      <a class="brand" href="#inicio" aria-label="Cuestionarios, inicio">
+        <span class="brand-mark"><span></span><span></span><span></span></span>
+        <span class="brand-name">aula<span>base</span></span>
+      </a>
+      <div class="workspace-label">ESPACIO DE TRABAJO</div>
+      <button class="workspace-picker" type="button">
+        <span class="workspace-icon">IC</span>
+        <span><strong>Instituto Central</strong><small>Administración</small></span>
+        <span class="chevron">⌄</span>
+      </button>
+      <div class="nav-group">
+        <p>GENERAL</p>
+        <button class="nav-item active" data-view="inicio"><span class="nav-icon">⌂</span>Resumen</button>
+        <button class="nav-item" data-view="banco"><span class="nav-icon">▤</span>Banco de preguntas<span class="nav-count" id="nav-question-count">0</span></button>
+        <button class="nav-item" data-view="cuestionarios"><span class="nav-icon">▣</span>Cuestionarios</button>
+        <button class="nav-item" data-view="intentos"><span class="nav-icon">◷</span>Intentos</button>
+      </div>
+      <div class="nav-group nav-group-bottom">
+        <p>GESTIÓN</p>
+        <button class="nav-item" data-view="importar"><span class="nav-icon">⇧</span>Importar desde Excel</button>
+        <button class="nav-item" data-view="diseno"><span class="nav-icon">⌘</span>Diseño del sistema</button>
+        <button class="nav-item" data-view="reportes"><span class="nav-icon">▥</span>Reportes</button>
+        <button class="nav-item" data-view="configuracion"><span class="nav-icon">⚙</span>Configuración</button>
+      </div>
+      <div class="sidebar-footer">
+        <div class="help-mark">?</div>
+        <span><strong>Centro de ayuda</strong><small>Guías y soporte</small></span>
+        <span class="footer-arrow">↗</span>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumbs"><span>Espacio de trabajo</span><b>/</b><strong id="breadcrumb-current">Resumen</strong></div>
+        <div class="topbar-actions">
+          <span class="date-chip" id="database-status" data-connected="false" title="Estado de la conexión MySQL"><span class="status-dot"></span><span id="database-status-text">Conectando con MySQL</span></span>
+          <span class="date-chip"><span class="status-dot"></span> Ciclo académico 2026</span>
+          <button class="icon-button" aria-label="Notificaciones" title="Notificaciones">♧<i></i></button>
+          <button class="profile-button" aria-label="Perfil de usuario"><span>AM</span><span class="profile-name">Andrea Martínez<small>Coordinadora</small></span><b>⌄</b></button>
+        </div>
+      </header>
+
+      <section class="page-content" id="view-inicio">
+        <div class="welcome-row">
+          <div><div class="eyebrow"><span></span> PANEL DE CONTROL</div><h1>Buenos días, Andrea</h1><p class="page-subtitle">Aquí tienes el estado de tus evaluaciones y contenidos.</p></div>
+          <button class="button button-dark" data-go="importar"><span>＋</span> Importar preguntas</button>
+        </div>
+        <div class="metric-grid">
+          <article class="metric-card"><div class="metric-top"><span>Preguntas en el banco</span><span class="metric-icon mint">▤</span></div><strong id="metric-questions">0</strong><small><span class="positive">●</span> Preguntas disponibles</small><div class="metric-spark spark-green">▂ ▃ ▅ ▄ ▇ ▅ ▆</div></article>
+          <article class="metric-card"><div class="metric-top"><span>Cuestionarios activos</span><span class="metric-icon yellow">▣</span></div><strong>8</strong><small><span class="positive">●</span> 3 abiertos ahora</small><div class="mini-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></article>
+          <article class="metric-card"><div class="metric-top"><span>Intentos completados</span><span class="metric-icon coral">◷</span></div><strong>246</strong><small><span class="positive">↗ 12%</span> vs. ciclo anterior</small><div class="metric-spark spark-coral">▂ ▄ ▃ ▆ ▅ ▇ ▆</div></article>
+          <article class="metric-card"><div class="metric-top"><span>Promedio de aprobación</span><span class="metric-icon blue">◉</span></div><strong>84<span class="metric-unit">%</span></strong><small><span class="positive">↗ 4.2%</span> vs. ciclo anterior</small><div class="metric-spark spark-blue">▃ ▄ ▂ ▅ ▄ ▇ ▆</div></article>
+        </div>
+
+        <div class="overview-grid">
+          <section class="panel activity-panel">
+            <div class="panel-heading"><div><h2>Actividad reciente</h2><p>Últimos movimientos en tu espacio</p></div><button class="text-button" data-go="reportes">Ver actividad <span>→</span></button></div>
+            <div class="activity-list">
+              <div class="activity-row"><span class="activity-icon import-icon">⇧</span><span class="activity-copy"><strong>Importación de preguntas</strong><small id="recent-import-detail">Aún no hay importaciones en este espacio</small></span><span class="activity-time" id="recent-import-time">—</span></div>
+              <div class="activity-row"><span class="activity-icon exam-icon">▣</span><span class="activity-copy"><strong>Evaluación publicada</strong><small>Biología · Unidad 3</small></span><span class="activity-time">Hace 2 h</span></div>
+              <div class="activity-row"><span class="activity-icon people-icon">◉</span><span class="activity-copy"><strong>Nuevo intento completado</strong><small>Evaluación diagnóstica · 28 participantes</small></span><span class="activity-time">Ayer</span></div>
+              <div class="activity-row"><span class="activity-icon edit-icon">✎</span><span class="activity-copy"><strong>Banco de preguntas actualizado</strong><small>Matemáticas · 6 preguntas editadas</small></span><span class="activity-time">Ayer</span></div>
+            </div>
+          </section>
+          <section class="panel system-panel">
+            <div class="panel-heading"><div><h2>Tu sistema</h2><p>Módulos de gestión académica</p></div><span class="live-badge"><i></i> Operativo</span></div>
+            <div class="module-list">
+              <button class="module-row" data-go="banco"><span class="module-number">01</span><span><strong>Banco de preguntas</strong><small>Categorías, opciones y puntajes</small></span><span class="module-arrow">↗</span></button>
+              <button class="module-row" data-go="cuestionarios"><span class="module-number">02</span><span><strong>Cuestionarios</strong><small>Programación y configuración</small></span><span class="module-arrow">↗</span></button>
+              <button class="module-row" data-go="intentos"><span class="module-number">03</span><span><strong>Intentos y calificaciones</strong><small>Seguimiento de participantes</small></span><span class="module-arrow">↗</span></button>
+              <button class="module-row" data-go="importar"><span class="module-number">04</span><span><strong>Importación masiva</strong><small>Plantilla Excel con validación</small></span><span class="module-arrow">↗</span></button>
+            </div>
+          </section>
+        </div>
+        <section class="panel bank-preview">
+          <div class="panel-heading"><div><h2>Banco de preguntas</h2><p>Contenido disponible por categoría</p></div><button class="text-button" data-go="banco">Abrir banco <span>→</span></button></div>
+          <div class="category-strip"><div class="category-item"><span class="category-swatch swatch-green"></span><span><strong>Matemáticas</strong><small>Preguntas importadas</small></span><b class="category-amount" data-category-count="Matemáticas">0</b></div><div class="category-item"><span class="category-swatch swatch-orange"></span><span><strong>Ciencias</strong><small>Preguntas importadas</small></span><b class="category-amount" data-category-count="Ciencias">0</b></div><div class="category-item"><span class="category-swatch swatch-blue"></span><span><strong>Otras categorías</strong><small>Se crean al importar</small></span><b class="category-amount" id="other-category-count">0</b></div></div>
+        </section>
+      </section>
+
+      <section class="page-content hidden" id="view-importar">
+        <div class="welcome-row import-welcome"><div><div class="eyebrow"><span></span> BANCO DE PREGUNTAS</div><h1>Importación masiva</h1><p class="page-subtitle">Incorpora preguntas desde Excel con validación previa a la carga.</p></div><a class="button button-outline download-template" href="/api/imports/template" download="plantilla_banco_preguntas.xlsx"><span>↓</span> Descargar plantilla</a></div>
+        <div class="import-steps" aria-label="Pasos de importación"><div class="step active"><span>01</span><div><strong>Plantilla</strong><small>Prepara tus datos</small></div></div><i></i><div class="step" id="step-review"><span>02</span><div><strong>Revisión</strong><small>Valida las filas</small></div></div><i></i><div class="step" id="step-import"><span>03</span><div><strong>Importar</strong><small>Guarda en el banco</small></div></div></div>
+        <div class="import-layout">
+          <section class="panel upload-panel">
+            <div class="panel-heading"><div><h2>Subir archivo Excel</h2><p>Selecciona la plantilla completada para revisar su contenido.</p></div><span class="excel-mark">X</span></div>
+            <label class="drop-zone" id="drop-zone" for="excel-file"><span class="upload-art"><span>↑</span></span><strong>Arrastra tu archivo aquí</strong><small>o <em>explora tus archivos</em></small><span class="file-types">XLSX · Máximo 10 MB</span><input id="excel-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+            <div class="template-hint"><span class="hint-icon">↳</span><span><strong>¿Primera vez?</strong> Descarga la plantilla para ver las columnas requeridas y un ejemplo completo.</span><a class="text-button download-template" href="/api/imports/template" download="plantilla_banco_preguntas.xlsx">Descargar <span>↓</span></a></div>
+            <div class="file-selected hidden" id="file-selected"><span class="file-icon">X</span><span class="file-copy"><strong id="file-name">archivo.xlsx</strong><small id="file-size">0 KB</small></span><button class="icon-button remove-file" id="remove-file" aria-label="Quitar archivo">×</button></div>
+            <button class="button button-dark validate-button" id="validate-file" disabled><span>✓</span> Revisar archivo</button>
+            <p class="upload-error hidden" id="upload-error" role="alert"></p>
+          </section>
+          <aside class="panel format-panel"><div class="format-heading"><span class="format-icon">▤</span><div><h2>Formato requerido</h2><p>Una pregunta por fila</p></div></div><div class="format-columns"><span>categoria</span><span>tipo</span><span>enunciado</span><span>opcion_a – opcion_d</span><span>correcta</span><span>puntaje_defecto</span></div><div class="format-note"><span>i</span><p>Usa <strong>MULTIPLE</strong> o <strong>VERDADERO_FALSO</strong>. En V/F, opcion_a = “Verdadero”, opcion_b = “Falso” y correcta = <strong>V</strong> o <strong>F</strong>.</p></div><button class="format-link" id="format-guide">Ver todas las columnas requeridas <span>↗</span></button></aside>
+        </div>
+        <section class="panel results-panel hidden" id="results-panel">
+          <div class="panel-heading results-heading"><div><h2>Revisión del archivo</h2><p id="review-filename">Resultados de validación</p></div><button class="button button-dark" id="confirm-import" disabled><span>＋</span> Importar válidas</button></div>
+          <div class="result-stats"><div><span class="result-dot total-dot"></span><strong id="rows-total">0</strong><small>filas leídas</small></div><div><span class="result-dot valid-dot"></span><strong id="rows-valid">0</strong><small>listas para importar</small></div><div><span class="result-dot error-dot"></span><strong id="rows-errors">0</strong><small>con errores</small></div></div>
+          <div class="table-wrap"><table><thead><tr><th>FILA</th><th>CATEGORÍA</th><th>TIPO</th><th>ENUNCIADO</th><th>PUNTAJE</th><th>ESTADO</th></tr></thead><tbody id="preview-body"></tbody></table></div>
+          <div class="import-success hidden" id="import-success" role="status"><span>✓</span><div><strong>Importación completada</strong><small id="success-detail"></small></div></div>
+        </section>
+      </section>
+
+      <section class="page-content hidden" id="view-banco">
+        <div class="welcome-row"><div><div class="eyebrow"><span></span> CONTENIDO ACADÉMICO</div><h1>Banco de preguntas</h1><p class="page-subtitle">Explora las preguntas cargadas en tu espacio de trabajo.</p></div><button class="button button-dark" data-go="importar"><span>＋</span> Importar preguntas</button></div>
+        <section class="panel bank-table-panel"><div class="panel-heading"><div><h2>Preguntas disponibles</h2><p id="bank-count-label">0 preguntas</p></div><label class="search-box"><span>⌕</span><input type="search" id="question-search" placeholder="Buscar por enunciado o categoría"></label></div><div class="table-wrap"><table><thead><tr><th>CATEGORÍA</th><th>TIPO</th><th>ENUNCIADO</th><th>OPCIONES</th><th>PUNTAJE</th></tr></thead><tbody id="bank-body"></tbody></table><div class="empty-state" id="bank-empty"><span>▤</span><strong>Tu banco está listo para crecer</strong><p>Importa preguntas con la plantilla Excel para verlas aquí.</p><button class="button button-outline" data-go="importar">Importar desde Excel</button></div></div></section>
+      </section>
+
+      <section class="page-content hidden" id="view-cuestionarios">
+        <div class="welcome-row"><div><div class="eyebrow"><span></span> EVALUACIONES</div><h1>Cuestionarios</h1><p class="page-subtitle">Programa evaluaciones y configura sus condiciones de acceso.</p></div><button class="button button-dark" disabled><span>＋</span> Crear cuestionario</button></div>
+        <section class="panel placeholder-panel"><span class="placeholder-number">02</span><div><h2>Programación de evaluaciones</h2><p>Configura fechas de apertura y cierre, tiempo límite, intentos permitidos, calificación de aprobación y mezcla de preguntas.</p><div class="placeholder-tags"><span>Fechas y disponibilidad</span><span>Intentos y duración</span><span>Calificación</span></div></div><span class="live-badge"><i></i> Módulo diseñado</span></section>
+      </section>
+
+      <section class="page-content hidden" id="view-intentos">
+        <div class="welcome-row"><div><div class="eyebrow"><span></span> SEGUIMIENTO</div><h1>Intentos y calificaciones</h1><p class="page-subtitle">Consulta el progreso, los resultados y el estado de cada participante.</p></div></div>
+        <section class="panel placeholder-panel"><span class="placeholder-number">03</span><div><h2>Seguimiento de participantes</h2><p>Registra cada intento, conserva las respuestas presentadas, calcula el puntaje y muestra si el participante aprobó.</p><div class="placeholder-tags"><span>En progreso</span><span>Finalizados</span><span>Calificaciones</span></div></div><span class="live-badge"><i></i> Módulo diseñado</span></section>
+      </section>
+
+      <section class="page-content hidden" id="view-reportes">
+        <div class="welcome-row"><div><div class="eyebrow"><span></span> ANÁLISIS</div><h1>Reportes</h1><p class="page-subtitle">Resumen de actividad, resultados e importaciones de tu espacio.</p></div></div>
+        <section class="panel report-panel"><div class="panel-heading"><div><h2>Historial de importaciones</h2><p>Archivos procesados en este navegador</p></div></div><div id="import-history" class="history-list"></div></section>
+      </section>
+
+      <section class="page-content hidden" id="view-configuracion">
+        <div class="welcome-row"><div><div class="eyebrow"><span></span> ESPACIO DE TRABAJO</div><h1>Configuración</h1><p class="page-subtitle">Estructura académica y preferencias generales del sistema.</p></div></div>
+        <section class="panel placeholder-panel"><span class="placeholder-number">⚙</span><div><h2>Categorías y competencias</h2><p>Las categorías del banco se crean automáticamente con las importaciones. En el sistema completo, administra su descripción y estado activo.</p><div class="placeholder-tags"><span id="settings-category-count">0 categorías</span><span>Importación local de demostración</span></div></div><span class="live-badge"><i></i> Operativo</span></section>
+      </section>
+      <section class="page-content hidden" id="view-diseno">
+        <div class="welcome-row"><div><div class="eyebrow"><span></span> ARQUITECTURA DE DATOS</div><h1>Diseño del sistema</h1><p class="page-subtitle">Modelo relacional del banco, las evaluaciones, los intentos y su trazabilidad.</p></div><span class="live-badge"><i></i> 9 entidades</span></div>
+        <section class="panel schema-panel"><div class="panel-heading"><div><h2>Modelo de datos</h2><p>Relaciones principales y responsabilidad de cada entidad</p></div><span class="schema-key"><i></i> Relación foránea</span></div>
+          <div class="schema-grid">
+            <article class="schema-entity"><span>01 · CONTENIDO</span><h3>categorias</h3><p>Competencias y agrupación temática.</p><small>1 categoría → muchas preguntas</small></article>
+            <article class="schema-entity"><span>02 · CONTENIDO</span><h3>preguntas</h3><p>Enunciado, tipo, retroalimentación y puntaje por defecto.</p><small>FK categoria_id · MULTIPLE / V-F</small></article>
+            <article class="schema-entity"><span>03 · CONTENIDO</span><h3>opciones_respuesta</h3><p>Alternativas A–D y marca de respuesta correcta.</p><small>FK pregunta_id · borrado en cascada</small></article>
+            <article class="schema-entity schema-entity-featured"><span>04 · EVALUACIÓN</span><h3>cuestionarios</h3><p>Fechas, duración, intentos, calificación, mezcla y estado.</p><small>Validación de fechas y límites</small></article>
+            <article class="schema-entity"><span>05 · EVALUACIÓN</span><h3>cuestionario_preguntas</h3><p>Preguntas incluidas, orden y puntaje asignado.</p><small>Única por cuestionario + pregunta</small></article>
+            <article class="schema-entity schema-entity-featured"><span>06 · PARTICIPACIÓN</span><h3>intentos</h3><p>Participante, número de intento, tiempo, resultado y estado.</p><small>FK cuestionario_id</small></article>
+            <article class="schema-entity"><span>07 · PARTICIPACIÓN</span><h3>respuestas_intento</h3><p>Respuesta seleccionada, orden presentado, puntaje y revisión.</p><small>FK intento_id · opción opcional</small></article>
+            <article class="schema-entity schema-entity-import"><span>08 · TRAZABILIDAD</span><h3>importaciones</h3><p>Archivo, fecha y conteo de filas exitosas o fallidas.</p><small>FK cuestionario opcional</small></article>
+            <article class="schema-entity schema-entity-import"><span>09 · TRAZABILIDAD</span><h3>importacion_errores</h3><p>Detalle del error, campo afectado y fila de Excel.</p><small>FK importacion_id · borrado en cascada</small></article>
+          </div>
+          <div class="schema-flow"><strong>Flujo de evaluación</strong><span>categorias</span><i>→</i><span>preguntas</span><i>→</i><span>cuestionario_preguntas</span><i>→</i><span>intentos</span><i>→</i><span>respuestas_intento</span></div>
+          <div class="schema-flow schema-flow-import"><strong>Flujo de importación</strong><span>importaciones</span><i>→</i><span>importacion_errores</span><b>·</b><span>filas válidas → preguntas + opciones_respuesta</span></div>
+        </section>
+      </section>
+      <footer class="page-footer"><span>AULABASE <i>·</i> GESTIÓN DE EVALUACIONES</span><span>Espacio de trabajo · Instituto Central</span></footer>
+    </main>
+  </div>
+  <nav class="mobile-nav" aria-label="Navegación móvil">
+    <button data-view="inicio"><span>⌂</span>Resumen</button>
+    <button data-view="banco"><span>▤</span>Banco</button>
+    <button data-view="cuestionarios"><span>▣</span>Evaluaciones</button>
+    <button data-view="intentos"><span>◷</span>Intentos</button>
+    <button data-view="diseno"><span>⌘</span>Diseño</button>
+    <button data-view="importar"><span>⇧</span>Importar</button>
+  </nav>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

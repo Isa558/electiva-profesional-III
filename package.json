@@ -1,0 +1,21 @@
+{
+  "name": "aulabase-cuestionarios",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simulador Saber TyT con Django, JWT y evaluación automática",
+  "scripts": {
+    "start": "python manage.py runserver 127.0.0.1:8000",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "mariadb": "^3.5.4"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
+  }
+}

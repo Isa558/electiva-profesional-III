@@ -1,0 +1,89 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#162f4b">
+  <title>Simulador Saber TyT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'evaluaciones/app.css' %}">
+</head>
+<body>
+  <section class="login-screen" id="login-screen">
+    <div class="login-promo">
+      <div class="login-promo-mark">S</div>
+      <div class="login-promo-copy">
+        <div class="eyebrow">PLATAFORMA ACADÉMICA</div>
+        <h1><span>Simulador</span><span>Saber TyT</span></h1>
+        <p>Practica tus competencias, gestiona evaluaciones y sigue tu progreso en un solo lugar.</p>
+        <ul class="login-benefits">
+          <li>Evaluaciones por competencias</li>
+          <li>Resultados y retroalimentación</li>
+          <li>Experiencia adaptable a celular</li>
+        </ul>
+      </div>
+    </div>
+    <div class="login-card">
+      <div class="eyebrow">BIENVENIDO/A</div>
+      <h2>Iniciar sesión</h2>
+      <p class="login-intro">Ingresa con una cuenta de tu institución.</p>
+      <form id="login-form">
+        <label for="login-identity">Correo electrónico</label>
+        <input class="login-field" id="login-identity" name="username" autocomplete="username" placeholder="usuario@institucion.edu.co" required>
+        <label for="login-password">Contraseña</label>
+        <div class="login-password-field"><input class="login-field" id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Ingresa tu contraseña" required><button class="password-toggle" type="button" id="toggle-password" aria-label="Mostrar contraseña">Mostrar</button></div>
+        <label for="login-role">Ingresar como</label>
+        <select class="login-field login-role-select" id="login-role" name="role_slug" required>
+          <option value="">Cargando roles...</option>
+        </select>
+        <div class="form-message error-message" id="login-error" hidden></div>
+        <button class="btn btn-primary btn-wide login-submit" type="submit"><span>Entrar al simulador</span><span aria-hidden="true">→</span></button>
+      </form>
+      <div class="login-role-note"><span class="connection-dot" id="db-dot"></span><span id="db-message">Verificando conexión segura...</span></div>
+      <p class="login-security-note">El rol seleccionado debe coincidir con los permisos asignados a tu cuenta.</p>
+      <section class="demo-accounts" id="demo-accounts" aria-labelledby="demo-accounts-title" hidden>
+        <h3 id="demo-accounts-title">Cuentas de demostración</h3>
+        <div class="demo-account-list" id="demo-account-list"></div>
+        <p>Contraseña para las tres cuentas: <strong id="demo-password"></strong></p>
+      </section>
+    </div>
+  </section>
+
+  <div class="app-shell" id="app-shell" hidden>
+    <aside class="sidebar" id="sidebar">
+      <a class="sidebar-brand" href="#" data-action="navigate" data-page="dashboard">
+        <span class="brand-symbol">S</span>
+        <span><b>Simulador</b><small>Saber TyT</small></span>
+      </a>
+      <div class="sidebar-user">
+        <span class="avatar" id="sidebar-avatar">ST</span>
+        <span class="sidebar-user-copy"><b id="sidebar-name">Usuario</b><small id="sidebar-role">Rol</small></span>
+        <span class="online-dot" title="Sesión activa"></span>
+      </div>
+      <div class="sidebar-caption">MENÚ PRINCIPAL</div>
+      <nav class="sidebar-nav" id="sidebar-nav" aria-label="Navegación principal"></nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-help"><span class="help-icon">?</span><span><b>¿Necesitas ayuda?</b><small>Consulta con tu institución</small></span></div>
+        <button type="button" class="sidebar-logout" data-action="logout"><span>↪</span> Cerrar sesión</button>
+        <div class="sidebar-version">SIMULADOR SABER TYT <span>·</span> 1.0</div>
+      </div>
+    </aside>
+    <div class="mobile-overlay" id="mobile-overlay" data-action="close-menu"></div>
+    <div class="main-column">
+      <header class="topbar">
+        <button class="icon-button mobile-menu-button" type="button" data-action="toggle-menu" aria-label="Abrir menú">☰</button>
+        <div><div class="topbar-context">PLATAFORMA DE EVALUACIÓN</div><h1 id="page-title">Inicio</h1></div>
+        <div class="topbar-right"><span class="today-label" id="today-label"></span><button type="button" class="profile-chip" data-action="navigate" data-page="profile"><span class="avatar avatar-small" id="top-avatar">ST</span><span><b id="top-name">Usuario</b><small id="top-role">Rol</small></span><span class="chevron">⌄</span></button></div>
+      </header>
+      <main class="page-content" id="page-content" tabindex="-1"></main>
+      <footer class="app-footer"><span>© <span id="current-year"></span> <span id="institution-name">Institución Universitaria del Putumayo</span></span><span>Simulador Saber TyT <i class="footer-dot"></i> Hecho para aprender</span></footer>
+    </div>
+  </div>
+  <div class="modal-root" id="modal-root" hidden></div>
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <script src="{% static 'evaluaciones/app.js' %}" defer></script>
+</body>
+</html>
