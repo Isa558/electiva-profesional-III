@@ -59,6 +59,41 @@ class EvaluationApiTests(TestCase):
         response = self.client.get('/api/reportes/')
         self.assertEqual(response.status_code, 401)
 
+    def test_full_demo_creates_subject_quizzes_idempotently(self):
+        with override_settings(DEBUG=True, DEMO_ACCOUNTS_ENABLED=True):
+            call_command('setup_demo_accounts', stdout=StringIO())
+            call_command('setup_full_demo', stdout=StringIO())
+            call_command('setup_full_demo', stdout=StringIO())
+
+        titles = set(Quiz.objects.values_list('title', flat=True))
+        self.assertIn('Simulacro Saber TyT - Matemáticas', titles)
+        self.assertIn('Simulacro Saber TyT - Español', titles)
+        self.assertIn('Simulacro Saber TyT - Inglés', titles)
+        self.assertIn('Simulacro Saber TyT - Naturales', titles)
+        self.assertIn('Simulacro Saber TyT - Ciencias', titles)
+        self.assertGreaterEqual(
+            Question.objects.filter(category__name__in=[
+                'Matemáticas', 'Español', 'Inglés', 'Naturales', 'Ciencias',
+            ]).count(),
+            20,
+        )
+
+    def test_report_filters_accept_year_course_and_axis(self):
+        login = self.client.post('/api/auth/token/', {
+            'username': 'admin-demo',
+            'password': 'Admin-demo-123!',
+        }, format='json')
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+        response = self.client.get('/api/reportes/', {
+            'year': str(timezone.now().year),
+            'course': 'Matemáticas',
+            'axis': 'Razonamiento',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('filters', response.data)
+        self.assertIn('results', response.data)
+
     def test_jwt_login_refresh_and_logout(self):
         response = self.client.post('/api/auth/token/', {'username': 'student-demo', 'password': 'Student-demo-123!'}, format='json')
         self.assertEqual(response.status_code, 200)

@@ -62,6 +62,7 @@
     deadline: 0,
     submitting: false,
     pendingAnswers: new Set(),
+    reportFilters: {},
     importDraft: null,
     importResult: null,
     modalSubmit: null,
@@ -588,7 +589,18 @@
   }
 
   async function renderResults(ownOnly) {
-    const attempts = await api.get('attempts/');
+    const currentReportFilters = app.reportFilters || {};
+    let attempts;
+    if (currentReportFilters.year || currentReportFilters.course || currentReportFilters.axis) {
+      const params = new URLSearchParams();
+      if (currentReportFilters.year) params.set('year', currentReportFilters.year);
+      if (currentReportFilters.course) params.set('course', currentReportFilters.course);
+      if (currentReportFilters.axis) params.set('axis', currentReportFilters.axis);
+      const report = await api.get(`reportes/?${params.toString()}`);
+      attempts = report.results || [];
+    } else {
+      attempts = await api.get('attempts/');
+    }
     const items = ownOnly ? attempts.filter(item => item.student_username === app.user.username) : attempts;
     const historyPage = app.page === 'history';
     const columns = ownOnly
@@ -622,7 +634,11 @@
     });
     const quizFilter = [...new Map(items.map(item => [item.quiz, item.quiz_title])).entries()];
     const filters = `<select class="select-field" data-status-filter><option value="">Todos los estados</option><option value="COMPLETED">Finalizados</option><option value="IN_PROGRESS">En curso</option></select>
-      <select class="select-field" data-quiz-filter><option value="">Todos los cuestionarios</option>${quizFilter.map(([id, title]) => `<option value="${id}">${escapeHtml(title)}</option>`).join('')}</select>`;
+      <select class="select-field" data-quiz-filter><option value="">Todos los cuestionarios</option>${quizFilter.map(([id, title]) => `<option value="${id}">${escapeHtml(title)}</option>`).join('')}</select>
+      <input class="search-field" type="number" min="2000" max="2100" data-report-year value="${escapeHtml(currentReportFilters.year || '')}" placeholder="Año">
+      <input class="search-field" type="search" data-report-course value="${escapeHtml(currentReportFilters.course || '')}" placeholder="Curso o materia">
+      <input class="search-field" type="search" data-report-axis value="${escapeHtml(currentReportFilters.axis || '')}" placeholder="Eje temático">
+      <button class="btn btn-secondary" type="button" data-action="report-clear">Limpiar filtros</button>`;
     const grades = items.filter(item => item.status === 'COMPLETED').map(item => Number(item.grade)).filter(Number.isFinite);
     const average = grades.length ? (grades.reduce((sum, grade) => sum + grade, 0) / grades.length).toFixed(2) : '—';
     const intro = ownOnly
@@ -637,6 +653,23 @@
       ${ownOnly && !historyPage ? `<div class="metric-grid">${metric('Evaluaciones finalizadas', grades.length, 'En tu historial', '✓')}${metric('Promedio', average, 'Sobre tus calificaciones', '↗')}${metric('Aprobadas', items.filter(item => item.status === 'COMPLETED' && Number(item.grade) >= Number(item.passing_grade || 3)).length, 'Según la nota mínima', '★')}${metric('En curso', items.filter(item => item.status === 'IN_PROGRESS').length, 'Intentos activos', '◷')}</div>` : ''}
       ${ownOnly ? tablePanel : `<section class="panel"><div class="panel-title"><div><h3>Registro de resultados</h3><p>Resultados disponibles para tu rol.</p></div>${exportButton}</div>${toolbar('Buscar estudiante o cuestionario', filters)}${table(columns, rows, 'Aún no se han registrado resultados.')}</section>`}`;
     bindTableFilters();
+    const reloadReport = () => {
+      app.reportFilters = {
+        year: $('[data-report-year]', $('#page-content'))?.value.trim() || '',
+        course: $('[data-report-course]', $('#page-content'))?.value.trim() || '',
+        axis: $('[data-report-axis]', $('#page-content'))?.value.trim() || '',
+      };
+      navigate(app.page);
+    };
+    $$('[data-report-year], [data-report-course], [data-report-axis]', $('#page-content')).forEach(input => {
+      input.addEventListener('change', reloadReport);
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          reloadReport();
+        }
+      });
+    });
   }
 
   async function renderProfile() {
@@ -1317,6 +1350,7 @@
       app.user = null;
       app.permissions = [];
       app.activeAttempt = null;
+      app.reportFilters = {};
       showLogin();
     }
   }
@@ -1376,6 +1410,10 @@
       else if (action === 'download-template') downloadTemplate();
       else if (action === 'attempt-detail') showAttemptDetails(id);
       else if (action === 'export-results') exportResults();
+      else if (action === 'report-clear') {
+        app.reportFilters = {};
+        navigate(app.page);
+      }
     } catch (error) {
       toast(error.message, 'error');
     }
