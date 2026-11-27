@@ -27,3 +27,5 @@ services:
         sync: false
       - key: DB_SSL_CA
         sync: false
+      - key: DB_SSL_CA
+        sync: false
