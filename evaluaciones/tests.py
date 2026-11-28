@@ -1,11 +1,14 @@
+from importlib import import_module
 from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
 from io import StringIO
 
+from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.core.management import call_command, CommandError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from openpyxl import Workbook, load_workbook
@@ -77,6 +80,26 @@ class EvaluationApiTests(TestCase):
             ]).count(),
             20,
         )
+
+    def test_mojibake_migration_repairs_question_and_option_text(self):
+        self.question.stem = 'Â¿QuÃ© medida protege mejor los ecosistemas?'
+        self.question.save(update_fields=['stem'])
+        self.correct_option.text = 'Conservar hÃ¡bitats y regular los recursos.'
+        self.correct_option.save(update_fields=['text'])
+
+        migration = import_module(
+            'evaluaciones.migrations.0009_repair_mojibake_in_academic_text'
+        )
+        self.assertEqual(
+            migration.repair_text('Â¿QuÃ© medida protege mejor los ecosistemas?'),
+            '¿Qué medida protege mejor los ecosistemas?',
+        )
+        migration.repair_question_data(apps, connection.schema_editor())
+
+        self.question.refresh_from_db()
+        self.correct_option.refresh_from_db()
+        self.assertEqual(self.question.stem, '¿Qué medida protege mejor los ecosistemas?')
+        self.assertEqual(self.correct_option.text, 'Conservar hábitats y regular los recursos.')
 
     def test_report_filters_accept_year_course_and_axis(self):
         login = self.client.post('/api/auth/token/', {
