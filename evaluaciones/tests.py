@@ -1,8 +1,8 @@
+import csv
 from importlib import import_module
 from datetime import timedelta
 from decimal import Decimal
-from io import BytesIO
-from io import StringIO
+from io import BytesIO, StringIO
 
 from django.apps import apps
 from django.contrib.auth import get_user_model
@@ -721,6 +721,42 @@ class EvaluationApiTests(TestCase):
         self.assertEqual(history.status_code, 200)
         self.assertEqual(history.data[0]['file_name'], 'preguntas.xlsx')
         self.assertEqual(history.data[0]['imported_rows'], 2)
+
+    def test_csv_import_preview_accepts_utf8_and_windows_1252(self):
+        self.client.force_authenticate(self.admin)
+        headers = [
+            'categoria', 'competencia', 'tipo', 'texto_base', 'enunciado',
+            'retroalimentacion', 'puntaje_defecto', 'opcion_a', 'opcion_b',
+            'opcion_c', 'opcion_d', 'correcta',
+        ]
+        questions = [
+            ('preguntas-utf8.csv', 'utf-8-sig', ';', '¿Qué práctica protege los ecosistemas?'),
+            ('preguntas-windows.csv', 'cp1252', ',', '¿Qué práctica protege la biodiversidad?'),
+        ]
+
+        for file_name, encoding, delimiter, stem in questions:
+            output = StringIO(newline='')
+            writer = csv.writer(output, delimiter=delimiter)
+            writer.writerow(headers)
+            writer.writerow([
+                'Ciencias', 'Explicación de fenómenos', 'MULTIPLE', '',
+                stem, 'Protege hábitats y reduce residuos.', 1,
+                'Conservar hábitats.', 'Aumentar residuos.', '', '', 'A',
+            ])
+            upload = SimpleUploadedFile(
+                file_name,
+                output.getvalue().encode(encoding),
+                content_type='text/csv',
+            )
+            preview = self.client.post(
+                '/api/imports/preview/',
+                {'file': upload},
+                format='multipart',
+            )
+
+            self.assertEqual(preview.status_code, 200, preview.data)
+            self.assertEqual(preview.data['valid'], 1)
+            self.assertEqual(preview.data['rows'][0]['values']['enunciado'], stem)
 
     def test_import_commit_does_not_save_invalid_rows(self):
         self.client.force_authenticate(self.admin)

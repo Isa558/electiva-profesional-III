@@ -33,7 +33,7 @@ La base predeterminada es MariaDB (`DB_ENGINE=mysql`) y se configura en `.env`; 
 - Roles configurables y permisos por operación. Los permisos se verifican en cada endpoint y en el panel de administración.
 - Interfaz adaptable a móvil basada en el prototipo, con módulos que se muestran según el rol autenticado.
 - Administración de usuarios, categorías, competencias, preguntas y cuestionarios. El contenido con intentos asociados se protege para conservar el historial de calificaciones.
-- Plantilla Excel con hojas formateadas de carga e instrucciones, encabezados legibles, validaciones de tipo/respuesta y una fila de ejemplo que se debe eliminar antes de importar. Incluye la columna `categoria` para la materia (por ejemplo, Matemáticas o Español), competencia y puntaje obligatorios, vista previa de cada pregunta, validación previa en el servidor, creación o reutilización de categorías al importar, opción de vincular preguntas a un cuestionario autorizado antes de sus intentos e historial de importaciones.
+- Importación desde Excel `.xlsx` o archivo plano `.csv` (UTF-8, UTF-16 o Windows-1252; delimitadores coma, punto y coma, tabulador o barra vertical). La plantilla Excel incluye hojas formateadas de carga e instrucciones, encabezados legibles, validaciones de tipo/respuesta y una fila de ejemplo que se debe eliminar antes de importar. Incluye la columna `categoria` para la materia (por ejemplo, Matemáticas o Español), competencia y puntaje obligatorios, vista previa de cada pregunta, validación previa en el servidor, creación o reutilización de categorías al importar, opción de vincular preguntas a un cuestionario autorizado antes de sus intentos e historial de importaciones.
 - Disponibilidad de evaluaciones, tiempo límite validado por el servidor, intentos permitidos y calificaciones restringidas a la escala de 0,00 a 5,00.
 - Metadatos de período académico y curso/grupo en cada cuestionario para filtrar resultados jerárquicamente.
 - Consultas de resultados con filtros por año, período, curso/grupo, eje y estudiante; indicadores agregados, desempeño por eje, análisis de dificultad y paginación.
@@ -66,7 +66,7 @@ Las rutas requieren `Authorization: Bearer <access>` salvo la obtención y renov
 | `GET /api/attempts/` | Consultar resultados propios o autorizados |
 | `GET /api/reportes/` | Consultar resultados, filtros disponibles, indicadores, análisis por eje y preguntas difíciles; acepta `year`, `period`, `group`, `axis`, `student`, `page` y `page_size` |
 | `GET /api/reportes/export/<consolidated\|axes\|history>/` | Descargar informes `.xlsx` con los mismos filtros y el mismo alcance de permisos |
-| `/api/imports/`, `/api/imports/template/`, `/preview/`, `/commit/` | Historial, plantilla y flujo de importación Excel |
+| `/api/imports/`, `/api/imports/template/`, `/preview/`, `/commit/` | Historial, plantilla Excel y previsualización/importación de archivos `.xlsx` o `.csv` |
 
 ## Swagger y esquema OpenAPI
 

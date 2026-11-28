@@ -1,6 +1,7 @@
+import csv
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
-from io import BytesIO
+from io import BytesIO, StringIO
 from zipfile import BadZipFile
 
 from django.contrib.auth import get_user_model
@@ -1142,7 +1143,8 @@ class ImportTemplateView(APIView):
             '2. La fila 2 es solo un ejemplo: elimínala antes de importar para no guardar esa pregunta de muestra.',
             '3. En selección múltiple, las opciones deben empezar en A y estar completas/consecutivas hasta la última usada.',
             '4. Para Verdadero/Falso escribe opcion_a = Verdadero, opcion_b = Falso y correcta = V o F.',
-            '5. Usa la vista previa del sistema; corrige cualquier fila señalada antes de confirmar la importación.',
+            '5. También puedes guardar la hoja como CSV UTF-8; usa una sola hoja y conserva los encabezados.',
+            '6. Usa la vista previa del sistema; corrige cualquier fila señalada antes de confirmar la importación.',
         ]
         for row_number, text in enumerate(quick_steps, start=17):
             instructions.merge_cells(start_row=row_number, start_column=1, end_row=row_number, end_column=4)
@@ -1171,15 +1173,33 @@ class ImportPreviewView(APIView):
 
     def post(self, request):
         upload = request.FILES.get('file')
-        if not upload or not upload.name.lower().endswith('.xlsx'):
-            return Response({'detail': 'Selecciona un archivo .xlsx válido.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not upload or not upload.name.lower().endswith(('.xlsx', '.csv')):
+            return Response({'detail': 'Selecciona un archivo .xlsx o .csv válido.'}, status=status.HTTP_400_BAD_REQUEST)
         if upload.size > 10 * 1024 * 1024:
             return Response({'detail': 'El archivo supera el límite de 10 MB.'}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            workbook = load_workbook(upload, read_only=True, data_only=True)
-            sheet = workbook.active
-            iterator = sheet.iter_rows(values_only=True)
-            headers = [_cell_text(value).lower() for value in next(iterator, ())]
+            if upload.name.lower().endswith('.csv'):
+                contents = upload.read()
+                if contents.startswith((b'\xff\xfe', b'\xfe\xff')):
+                    text = contents.decode('utf-16')
+                else:
+                    try:
+                        text = contents.decode('utf-8-sig')
+                    except UnicodeDecodeError:
+                        text = contents.decode('cp1252')
+                sample = text[:8192]
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+                    delimiter = dialect.delimiter
+                except csv.Error:
+                    first_line = sample.splitlines()[0] if sample else ''
+                    delimiter = max((',', ';', '\t', '|'), key=first_line.count)
+                iterator = iter(csv.reader(StringIO(text, newline=''), delimiter=delimiter))
+            else:
+                workbook = load_workbook(upload, read_only=True, data_only=True)
+                sheet = workbook.active
+                iterator = sheet.iter_rows(values_only=True)
+            headers = [_cell_text(value).strip().lower() for value in next(iterator, ())]
             missing = [header for header in REQUIRED_HEADERS if header not in headers]
             if missing:
                 return Response({'detail': f'Faltan encabezados obligatorios: {", ".join(missing)}.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1194,8 +1214,8 @@ class ImportPreviewView(APIView):
                 rows.append({'rowNumber': row_number, 'values': values})
                 if len(rows) > 5000:
                     return Response({'detail': 'El archivo no puede contener más de 5000 preguntas.'}, status=status.HTTP_400_BAD_REQUEST)
-        except (ValueError, OSError, KeyError, BadZipFile, InvalidFileException) as error:
-            return Response({'detail': f'No fue posible leer el archivo Excel: {error}'}, status=status.HTTP_400_BAD_REQUEST)
+        except (ValueError, OSError, KeyError, BadZipFile, InvalidFileException, csv.Error) as error:
+            return Response({'detail': f'No fue posible leer el archivo de preguntas: {error}'}, status=status.HTTP_400_BAD_REQUEST)
         valid, errors = validate_import_rows(rows)
         return Response({'total': len(rows), 'valid': len(valid), 'failed': len(errors), 'errors': errors, 'rows': rows})
 

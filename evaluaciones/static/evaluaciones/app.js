@@ -536,7 +536,7 @@
       <td>${escapeHtml(question.category_name)}</td><td>${escapeHtml(question.competency || '—')}</td>
       <td>${question.type === 'VERDADERO_FALSO' ? 'V / F' : 'Selección múltiple'}</td><td>${escapeHtml(question.default_score)}</td><td>${statusPill(question.is_active)}</td>
       <td><div class="table-actions"><button class="icon-action" data-action="question-edit" data-id="${question.id}" title="Editar pregunta">✎</button><button class="icon-action ${question.is_active ? 'danger' : ''}" data-action="question-toggle" data-id="${question.id}" title="${question.is_active ? 'Desactivar' : 'Activar'}">${question.is_active ? '⊘' : '✓'}</button></div></td></tr>`);
-    $('#page-content').innerHTML = `${heading('Banco de preguntas', 'Crea, clasifica y administra las preguntas que conforman las evaluaciones.', '<button class="btn btn-secondary" data-action="navigate" data-page="imports">⇧ Importar Excel</button><button class="btn btn-primary" data-action="question-new">＋ Nueva pregunta</button>')}
+    $('#page-content').innerHTML = `${heading('Banco de preguntas', 'Crea, clasifica y administra las preguntas que conforman las evaluaciones.', '<button class="btn btn-secondary" data-action="navigate" data-page="imports">⇧ Importar preguntas</button><button class="btn btn-primary" data-action="question-new">＋ Nueva pregunta</button>')}
       ${toolbar('Buscar enunciado, materia o competencia', filters)}${table(['ENUNCIADO', 'MATERIA / CATEGORÍA', 'COMPETENCIA', 'TIPO', 'PUNTAJE', 'ESTADO', 'ACCIONES'], rows, 'Aún no hay preguntas en el banco.')}`;
     bindTableFilters();
     const categoryFilter = $('[data-category-filter]');
@@ -553,9 +553,9 @@
       <td>${escapeHtml(formatDate(record.created_at))}</td><td>${record.total_rows}</td><td><span class="status-pill pill-green">${record.imported_rows}</span></td>
       <td>${record.duplicate_rows ? `<span class="status-pill pill-amber">${record.duplicate_rows}</span>` : '0'}</td>
       <td>${record.error_rows ? `<button class="text-link" data-action="import-errors" data-id="${record.id}">${record.error_rows} ver errores</button>` : '0'}</td></tr>`);
-    $('#page-content').innerHTML = `${heading('Importar preguntas', 'Carga preguntas desde una plantilla Excel y verifica el contenido antes de guardarlo.', '<button class="btn btn-secondary" data-action="download-template">↓ Descargar plantilla Excel</button>')}
-      <section class="panel"><div class="panel-title"><div><h3>Importación desde Excel</h3><p>Formato .xlsx · máximo 10 MB · hasta 5.000 filas.</p></div></div>
-        <div class="drop-zone" id="drop-zone"><div><div class="drop-icon">⇧</div><strong>Selecciona el archivo .xlsx</strong><p>Arrastra el archivo aquí o elígelo desde tu equipo.</p><p class="file-meta" id="selected-file">Ningún archivo seleccionado</p><input type="file" id="import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden><div class="heading-actions" style="justify-content:center;margin-top:10px"><button class="btn btn-secondary" type="button" data-action="choose-file">Seleccionar archivo</button><button class="btn btn-primary" type="button" data-action="preview-import">Validar archivo</button></div></div></div>
+    $('#page-content').innerHTML = `${heading('Importar preguntas', 'Carga preguntas desde una plantilla Excel o un archivo plano CSV y verifica el contenido antes de guardarlo.', '<button class="btn btn-secondary" data-action="download-template">↓ Descargar plantilla Excel</button>')}
+      <section class="panel"><div class="panel-title"><div><h3>Importación de preguntas</h3><p>Formatos .xlsx y .csv · máximo 10 MB · hasta 5.000 filas.</p></div></div>
+        <div class="drop-zone" id="drop-zone"><div><div class="drop-icon">⇧</div><strong>Selecciona un archivo .xlsx o .csv</strong><p>Arrastra el archivo aquí o elígelo desde tu equipo.</p><p class="file-meta" id="selected-file">Ningún archivo seleccionado</p><input type="file" id="import-file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden><div class="heading-actions" style="justify-content:center;margin-top:10px"><button class="btn btn-secondary" type="button" data-action="choose-file">Seleccionar archivo</button><button class="btn btn-primary" type="button" data-action="preview-import">Validar archivo</button></div></div></div>
         ${can('quizzes.manage') ? `<div class="field"><label for="import-destination-quiz">Agregar preguntas a un cuestionario (opcional)</label><select id="import-destination-quiz" class="select-field"><option value="">Solo agregar al banco de preguntas</option>${quizzes.map(quiz => `<option value="${quiz.id}">${escapeHtml(quiz.title)}${quiz.is_active ? ' · habilitado' : ''}</option>`).join('')}</select><span class="field-hint">No se puede modificar un cuestionario que ya tenga intentos.</span></div>` : ''}
         <div class="callout">En <strong>categoria</strong> escribe la materia (por ejemplo, Matemáticas o Español); en <strong>competencia</strong> y <strong>puntaje_defecto</strong> registra los datos obligatorios de cada pregunta. La materia queda registrada como categoría y se asigna a la pregunta.</div>
         <div class="callout">Primero se valida el archivo en el servidor. Si existe alguna fila inválida o duplicada, la importación completa se cancela para evitar guardar datos parciales.</div>
@@ -1275,7 +1275,7 @@
 
   async function runImportPreview() {
     const file = $('#import-file')?.files[0];
-    if (!file) return toast('Selecciona un archivo Excel primero.', 'error');
+    if (!file) return toast('Selecciona un archivo .xlsx o .csv primero.', 'error');
     const form = new FormData();
     form.append('file', file);
     const button = $('[data-action="preview-import"]');
