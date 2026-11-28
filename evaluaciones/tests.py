@@ -670,15 +670,26 @@ class EvaluationApiTests(TestCase):
         template = self.client.get('/api/imports/template/')
         self.assertEqual(template.status_code, 200)
         self.assertIn('spreadsheetml', template['Content-Type'])
-        downloaded_workbook = load_workbook(BytesIO(template.content), read_only=True)
+        downloaded_workbook = load_workbook(BytesIO(template.content))
+        template_sheet = downloaded_workbook['Plantilla']
+        self.assertEqual(list(template_sheet.values)[0], tuple([
+            'categoria', 'competencia', 'tipo', 'texto_base', 'enunciado',
+            'retroalimentacion', 'puntaje_defecto', 'opcion_a', 'opcion_b',
+            'opcion_c', 'opcion_d', 'correcta',
+        ]))
+        self.assertEqual(template_sheet.freeze_panes, 'A2')
+        self.assertGreaterEqual(template_sheet.column_dimensions['E'].width, 40)
+        self.assertEqual(template_sheet['A1'].font.color.rgb, '00FFFFFF')
+        self.assertEqual(len(template_sheet.data_validations.dataValidation), 2)
         instructions = '\n'.join(
             str(cell)
             for row in downloaded_workbook['Instrucciones'].iter_rows(values_only=True)
             for cell in row
             if cell is not None
         )
-        self.assertIn('materia o asignatura', instructions)
+        self.assertIn('materia o asignatura', instructions.lower())
         self.assertIn('Matemáticas, Español', instructions)
+        self.assertIn('fila 2 es solo un ejemplo', instructions.lower())
 
         workbook = Workbook()
         sheet = workbook.active

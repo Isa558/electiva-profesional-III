@@ -12,7 +12,10 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils.exceptions import InvalidFileException
+from openpyxl.worksheet.datavalidation import DataValidation
 from rest_framework import status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -994,18 +997,162 @@ class ImportTemplateView(APIView):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = 'Plantilla'
+        sheet.sheet_view.showGridLines = False
+        sheet.sheet_view.zoomScale = 80
+        sheet.sheet_properties.tabColor = '16877D'
+        sheet.freeze_panes = 'A2'
         sheet.append(IMPORT_HEADERS)
         sheet.append(['Matemáticas', 'Razonamiento cuantitativo', 'MULTIPLE', '', '¿Cuánto es 2 + 2?', '', 1, '3', '4', '5', '', 'B'])
+
+        required_headers = {
+            'categoria', 'competencia', 'tipo', 'enunciado',
+            'puntaje_defecto', 'opcion_a', 'opcion_b', 'correcta',
+        }
+        header_fill = PatternFill('solid', fgColor='173B57')
+        optional_header_fill = PatternFill('solid', fgColor='55788B')
+        sample_fill = PatternFill('solid', fgColor='EEF6F4')
+        header_border = Border(bottom=Side(style='medium', color='32A18F'))
+        header_descriptions = {
+            'categoria': 'Obligatorio. Materia o asignatura; se creará o reutilizará como categoría.',
+            'competencia': 'Obligatorio. Competencia evaluada.',
+            'tipo': 'Obligatorio. MULTIPLE o VERDADERO_FALSO.',
+            'texto_base': 'Opcional. Texto de lectura, contexto o estímulo compartido.',
+            'enunciado': 'Obligatorio. Pregunta que verá el estudiante.',
+            'retroalimentacion': 'Opcional. Explicación que se mostrará al revisar el resultado.',
+            'puntaje_defecto': 'Obligatorio. Número positivo con máximo dos decimales.',
+            'opcion_a': 'Obligatoria. Para Verdadero/Falso escribe Verdadero.',
+            'opcion_b': 'Obligatoria. Para Verdadero/Falso escribe Falso.',
+            'opcion_c': 'Opcional. Si se usa, las opciones deben ser consecutivas.',
+            'opcion_d': 'Opcional. Si se usa, las opciones deben ser consecutivas.',
+            'correcta': 'Obligatorio. A, B, C o D; para Verdadero/Falso, V o F.',
+        }
+        column_widths = {
+            'categoria': 22,
+            'competencia': 30,
+            'tipo': 23,
+            'texto_base': 38,
+            'enunciado': 44,
+            'retroalimentacion': 38,
+            'puntaje_defecto': 19,
+            'opcion_a': 28,
+            'opcion_b': 28,
+            'opcion_c': 28,
+            'opcion_d': 28,
+            'correcta': 14,
+        }
+        for column_number, header in enumerate(IMPORT_HEADERS, start=1):
+            cell = sheet.cell(row=1, column=column_number)
+            cell.fill = header_fill if header in required_headers else optional_header_fill
+            cell.font = Font(name='Aptos', size=10, bold=True, color='FFFFFF')
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            cell.border = header_border
+            cell.comment = Comment(header_descriptions[header], 'Simulador Saber TyT')
+            sheet.column_dimensions[cell.column_letter].width = column_widths[header]
+
+            sample = sheet.cell(row=2, column=column_number)
+            sample.fill = sample_fill
+            sample.font = Font(name='Aptos', size=10, color='50656E', italic=True)
+            sample.alignment = Alignment(vertical='top', wrap_text=True)
+        sheet.row_dimensions[1].height = 38
+        sheet.row_dimensions[2].height = 46
+        sheet.auto_filter.ref = 'A1:L2'
+
+        type_validation = DataValidation(
+            type='list',
+            formula1='"MULTIPLE,VERDADERO_FALSO"',
+            allow_blank=False,
+        )
+        type_validation.error = 'Selecciona MULTIPLE o VERDADERO_FALSO.'
+        type_validation.errorTitle = 'Tipo no válido'
+        type_validation.prompt = 'Selecciona el formato de la pregunta.'
+        type_validation.promptTitle = 'Tipo de pregunta'
+        sheet.add_data_validation(type_validation)
+        type_validation.add('C2:C5001')
+
+        answer_validation = DataValidation(
+            type='list',
+            formula1='"A,B,C,D,V,F"',
+            allow_blank=False,
+        )
+        answer_validation.error = 'Usa A, B, C o D; para Verdadero/Falso, usa V o F.'
+        answer_validation.errorTitle = 'Respuesta no válida'
+        sheet.add_data_validation(answer_validation)
+        answer_validation.add('L2:L5001')
+
         instructions = workbook.create_sheet('Instrucciones')
-        instructions.append(['Importación de preguntas'])
-        instructions.append(['Una pregunta por fila. No modifiques los encabezados de la hoja Plantilla.'])
-        instructions.append(['En categoria escribe la materia o asignatura, por ejemplo: Matemáticas, Español, Inglés o Ciencias.'])
-        instructions.append(['Al guardar, cada materia se crea o reutiliza como categoría del banco de preguntas.'])
-        instructions.append(['competencia es obligatoria e indica la competencia evaluada en esa pregunta.'])
-        instructions.append(['puntaje_defecto es obligatorio; usa un número positivo con máximo dos decimales.'])
-        instructions.append(['tipo: MULTIPLE o VERDADERO_FALSO.'])
-        instructions.append(['Para selección múltiple se requieren opciones consecutivas desde A y correcta A-D.'])
-        instructions.append(['Para Verdadero/Falso usa opcion_a = Verdadero, opcion_b = Falso y correcta = V o F.'])
+        instructions.sheet_view.showGridLines = False
+        instructions.sheet_view.zoomScale = 90
+        instructions.sheet_properties.tabColor = 'E5A33B'
+        instructions.freeze_panes = 'A5'
+        instructions.merge_cells('A1:D1')
+        instructions['A1'] = 'Plantilla para importar preguntas'
+        instructions['A1'].font = Font(name='Aptos Display', size=20, bold=True, color='FFFFFF')
+        instructions['A1'].fill = PatternFill('solid', fgColor='173B57')
+        instructions['A1'].alignment = Alignment(vertical='center')
+        instructions.row_dimensions[1].height = 42
+        instructions.merge_cells('A2:D2')
+        instructions['A2'] = 'Guía rápida para preparar y validar el banco de preguntas del Simulador Saber TyT.'
+        instructions['A2'].font = Font(name='Aptos', size=11, color='50656E', italic=True)
+        instructions['A2'].alignment = Alignment(wrap_text=True, vertical='center')
+        instructions.row_dimensions[2].height = 30
+
+        for column, width in {'A': 25, 'B': 15, 'C': 64, 'D': 42}.items():
+            instructions.column_dimensions[column].width = width
+
+        instruction_headers = ['Campo', 'Requerido', 'Qué debes escribir', 'Ejemplo']
+        for column_number, header in enumerate(instruction_headers, start=1):
+            cell = instructions.cell(row=4, column=column_number, value=header)
+            cell.fill = header_fill
+            cell.font = Font(name='Aptos', size=10, bold=True, color='FFFFFF')
+            cell.alignment = Alignment(vertical='center', wrap_text=True)
+        instructions.row_dimensions[4].height = 28
+
+        field_guidance = [
+            ('categoria', 'Sí', 'Materia o asignatura. Se crea o reutiliza como categoría.', 'Matemáticas, Español o Ciencias'),
+            ('competencia', 'Sí', 'Competencia que evalúa la pregunta.', 'Razonamiento cuantitativo'),
+            ('tipo', 'Sí', 'Usa MULTIPLE o VERDADERO_FALSO.', 'MULTIPLE'),
+            ('texto_base', 'No', 'Texto de lectura, contexto o estímulo compartido.', 'Lectura breve o situación problema'),
+            ('enunciado', 'Sí', 'Enunciado que verá el estudiante.', '¿Cuánto es 2 + 2?'),
+            ('retroalimentacion', 'No', 'Explicación para revisar después de responder.', 'Se suman las dos cantidades.'),
+            ('puntaje_defecto', 'Sí', 'Número mayor que cero; admite hasta dos decimales.', '1 o 0.50'),
+            ('opcion_a / opcion_b', 'Sí', 'Escribe al menos dos opciones para MULTIPLE.', '3 / 4'),
+            ('opcion_c / opcion_d', 'No', 'Opciones adicionales, consecutivas y sin saltos.', '5 / 6'),
+            ('correcta', 'Sí', 'MULTIPLE: letra A-D. Verdadero/Falso: V o F.', 'B o V'),
+        ]
+        for row_number, values in enumerate(field_guidance, start=5):
+            for column_number, value in enumerate(values, start=1):
+                cell = instructions.cell(row=row_number, column=column_number, value=value)
+                cell.fill = PatternFill(
+                    'solid',
+                    fgColor='F1F6F8' if row_number % 2 else 'FFFFFF',
+                )
+                cell.alignment = Alignment(vertical='top', wrap_text=True)
+                cell.border = Border(bottom=Side(style='hair', color='D8E3E8'))
+            instructions.row_dimensions[row_number].height = 34
+
+        instructions.merge_cells('A16:D16')
+        instructions['A16'] = 'Antes de importar'
+        instructions['A16'].font = Font(name='Aptos', size=12, bold=True, color='FFFFFF')
+        instructions['A16'].fill = PatternFill('solid', fgColor='16877D')
+        instructions['A16'].alignment = Alignment(vertical='center')
+        instructions.row_dimensions[16].height = 28
+
+        quick_steps = [
+            '1. Completa una pregunta por fila en la hoja Plantilla y conserva intactos los encabezados.',
+            '2. La fila 2 es solo un ejemplo: elimínala antes de importar para no guardar esa pregunta de muestra.',
+            '3. En selección múltiple, las opciones deben empezar en A y estar completas/consecutivas hasta la última usada.',
+            '4. Para Verdadero/Falso escribe opcion_a = Verdadero, opcion_b = Falso y correcta = V o F.',
+            '5. Usa la vista previa del sistema; corrige cualquier fila señalada antes de confirmar la importación.',
+        ]
+        for row_number, text in enumerate(quick_steps, start=17):
+            instructions.merge_cells(start_row=row_number, start_column=1, end_row=row_number, end_column=4)
+            cell = instructions.cell(row=row_number, column=1, value=text)
+            cell.fill = PatternFill('solid', fgColor='F1F6F8' if row_number % 2 else 'FFFFFF')
+            cell.font = Font(name='Aptos', size=10, color='304B59')
+            cell.alignment = Alignment(vertical='center', wrap_text=True)
+            cell.border = Border(bottom=Side(style='hair', color='D8E3E8'))
+            instructions.row_dimensions[row_number].height = 30
+
         buffer = BytesIO()
         workbook.save(buffer)
         response = HttpResponse(
