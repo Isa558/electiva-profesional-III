@@ -73,7 +73,7 @@ label { display: block; margin: 18px 0 8px; color: #314641; font-size: 12px; fon
 .connection-dot.disconnected { background: #d75a50; box-shadow: 0 0 0 3px #d75a5020; }
 .login-help { margin-top: 45px; color: #92a09a; font-size: 11px; line-height: 1.6; }
 .app-shell { min-height: 100vh; }
-.sidebar { position: fixed; z-index: 20; inset: 0 auto 0 0; display: flex; flex-direction: column; width: 254px; padding: 25px 17px 16px; color: #e0efea; background: var(--green-dark); }
+.sidebar { position: fixed; z-index: 20; inset: 0 auto 0 0; display: flex; flex-direction: column; width: 254px; height: 100vh; padding: 25px 17px 16px; overflow: hidden; color: #e0efea; background: var(--green-dark); }
 .sidebar-brand { gap: 10px; padding: 0 5px 25px; border-bottom: 1px solid #ffffff1b; font-size: 13px; }
 .sidebar-brand .brand-symbol { width: 36px; height: 36px; flex-basis: 36px; border-radius: 11px; font-size: 21px; }
 .sidebar-brand b, .sidebar-brand small { display: block; }
@@ -86,7 +86,7 @@ label { display: block; margin: 18px 0 8px; color: #314641; font-size: 12px; fon
 .sidebar-user-copy small { margin-top: 4px; color: #a3c0b7; font-size: 10px; }
 .online-dot { width: 7px; height: 7px; background: #55bd88; }
 .sidebar-caption { padding: 0 8px 10px; color: #87aaa0; font-size: 9px; font-weight: 700; letter-spacing: 1.3px; }
-.sidebar-nav { display: grid; gap: 4px; }
+.sidebar-nav { display: grid; flex: 1 1 auto; gap: 4px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .nav-item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 0 11px; color: #c0d7cf; border: 0; border-radius: 7px; background: transparent; text-align: left; font-size: 11px; }
 .nav-item:hover { color: #fff; background: #ffffff0e; }
 .nav-item.active { color: #fff; background: #ffffff1a; box-shadow: inset 3px 0 #8bd3b7; }
