@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
-from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema, inline_serializer
 from rest_framework import serializers
 
 from .models import AnswerOption, Attempt, AttemptAnswer, Category, ImportRecord, Question, Quiz, Role, ROLE_PERMISSIONS, SystemSettings, UserProfile
@@ -628,11 +628,27 @@ class ReportView(APIView):
             OpenApiParameter(name='year', type=int, required=False, description='Año del intento'),
             OpenApiParameter(name='period', type=str, required=False, description='Período académico del cuestionario'),
             OpenApiParameter(name='course', type=str, required=False, description='Curso, grupo o título del simulacro'),
+            OpenApiParameter(name='group', type=str, required=False, description='Curso/grupo exacto del cuestionario'),
             OpenApiParameter(name='axis', type=str, required=False, description='Eje temático, categoría o competencia'),
             OpenApiParameter(name='student', type=str, required=False, description='Nombre, usuario o identificación'),
             OpenApiParameter(name='page', type=int, required=False, description='Página de resultados'),
             OpenApiParameter(name='page_size', type=int, required=False, description='Filas por página (máximo 100)'),
         ],
+        responses={200: inline_serializer(
+            name='EvaluationReportResponse',
+            fields={
+                'filters': serializers.DictField(child=serializers.CharField(allow_blank=True)),
+                'facets': serializers.DictField(),
+                'summary': serializers.DictField(),
+                'axes': serializers.ListField(child=serializers.DictField()),
+                'difficulty': serializers.ListField(child=serializers.DictField()),
+                'count': serializers.IntegerField(),
+                'page': serializers.IntegerField(),
+                'page_size': serializers.IntegerField(),
+                'pages': serializers.IntegerField(),
+                'results': AttemptSerializer(many=True),
+            },
+        )},
     )
     def get(self, request):
         attempts, error = _report_attempts_for_user(request.user)
@@ -673,6 +689,20 @@ class ReportExportView(APIView):
     serializer_class = serializers.Serializer
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='year', type=int, required=False, description='Año del intento'),
+            OpenApiParameter(name='period', type=str, required=False, description='Período académico'),
+            OpenApiParameter(name='group', type=str, required=False, description='Curso/grupo exacto'),
+            OpenApiParameter(name='axis', type=str, required=False, description='Eje temático'),
+            OpenApiParameter(name='student', type=str, required=False, description='Nombre, usuario o identificación'),
+        ],
+        responses={
+            (200, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'): OpenApiTypes.BINARY,
+            400: OpenApiResponse(description='Filtros inválidos.'),
+            401: OpenApiResponse(description='Autenticación requerida.'),
+        },
+    )
     def get(self, request, report_type):
         if report_type not in {'consolidated', 'axes', 'history'}:
             return Response({'detail': 'Tipo de informe no válido.'}, status=status.HTTP_404_NOT_FOUND)
