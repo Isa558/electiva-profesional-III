@@ -33,8 +33,11 @@ La base predeterminada es MariaDB (`DB_ENGINE=mysql`) y se configura en `.env`; 
 - Roles configurables y permisos por operación. Los permisos se verifican en cada endpoint y en el panel de administración.
 - Interfaz adaptable a móvil basada en el prototipo, con módulos que se muestran según el rol autenticado.
 - Administración de usuarios, categorías, competencias, preguntas y cuestionarios. El contenido con intentos asociados se protege para conservar el historial de calificaciones.
-- Plantilla Excel con la columna `categoria` para la materia (por ejemplo, Matemáticas o Español), competencia y puntaje obligatorios, vista previa de cada pregunta, validación previa en el servidor, creación o reutilización de categorías al importar, importación transaccional e historial de importaciones.
-- Disponibilidad de evaluaciones, tiempo límite, intentos permitidos, nota máxima y nota mínima de aprobación.
+- Plantilla Excel con la columna `categoria` para la materia (por ejemplo, Matemáticas o Español), competencia y puntaje obligatorios, vista previa de cada pregunta, validación previa en el servidor, creación o reutilización de categorías al importar, opción de vincular preguntas a un cuestionario autorizado antes de sus intentos e historial de importaciones.
+- Disponibilidad de evaluaciones, tiempo límite validado por el servidor, intentos permitidos y calificaciones restringidas a la escala de 0,00 a 5,00.
+- Metadatos de período académico y curso/grupo en cada cuestionario para filtrar resultados jerárquicamente.
+- Consultas de resultados con filtros por año, período, curso/grupo, eje y estudiante; indicadores agregados, desempeño por eje, análisis de dificultad y paginación.
+- Exportación protegida de informes `.xlsx` de consolidado (incluye resúmenes y preguntas difíciles), desempeño por eje e historial cronológico.
 - Calificación automática en Django; la API del estudiante no incluye marcas de respuesta correcta y limita los intentos a su propietario.
 - Edición de perfil y contraseña con validación de la contraseña actual; ajustes institucionales persistidos en la base de datos.
 
@@ -61,6 +64,8 @@ Las rutas requieren `Authorization: Bearer <access>` salvo la obtención y renov
 | `/api/quizzes/<id>/attempts/` | Iniciar un intento |
 | `/api/attempts/<id>/answers/`, `/submit/` | Guardar respuestas y finalizar |
 | `GET /api/attempts/` | Consultar resultados propios o autorizados |
+| `GET /api/reportes/` | Consultar resultados, filtros disponibles, indicadores, análisis por eje y preguntas difíciles; acepta `year`, `period`, `group`, `axis`, `student`, `page` y `page_size` |
+| `GET /api/reportes/export/<consolidated\|axes\|history>/` | Descargar informes `.xlsx` con los mismos filtros y el mismo alcance de permisos |
 | `/api/imports/`, `/api/imports/template/`, `/preview/`, `/commit/` | Historial, plantilla y flujo de importación Excel |
 
 ## Swagger y esquema OpenAPI
@@ -68,7 +73,7 @@ Las rutas requieren `Authorization: Bearer <access>` salvo la obtención y renov
 - Documentación interactiva: `/api/docs/`
 - Esquema OpenAPI: `/api/schema/`
 - En Swagger, selecciona **Authorize**, inicia sesión con `POST /api/auth/token/` y usa el token JWT como `Bearer <access>`.
-- Operaciones principales: `/api/simulacros/`, `/api/preguntas/`, `/api/intentos/`, `/api/resultados/`, `/api/reportes/?year=2026&course=Matemáticas&axis=Razonamiento`, y `PATCH /api/preguntas/<id>/`.
+- Operaciones principales: `/api/simulacros/`, `/api/preguntas/`, `/api/intentos/`, `/api/resultados/`, `/api/reportes/?year=2026&period=2026-2&course=Sexto%20A&axis=Razonamiento&student=usuario`, y `PATCH /api/preguntas/<id>/`.
 
 ## Despliegue
 

@@ -102,8 +102,10 @@ class Quiz(models.Model):
     closes_at = models.DateTimeField()
     duration_minutes = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     attempts_allowed = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
-    max_grade = models.DecimalField(max_digits=5, decimal_places=2, default=5, validators=[MinValueValidator(Decimal('0.01')), MaxValueValidator(Decimal('100'))])
-    passing_grade = models.DecimalField(max_digits=5, decimal_places=2, default=3, validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('100'))])
+    max_grade = models.DecimalField(max_digits=5, decimal_places=2, default=5, validators=[MinValueValidator(Decimal('0.01')), MaxValueValidator(Decimal('5'))])
+    passing_grade = models.DecimalField(max_digits=5, decimal_places=2, default=3, validators=[MinValueValidator(Decimal('0')), MaxValueValidator(Decimal('5'))])
+    academic_period = models.CharField(max_length=30, blank=True)
+    course_group = models.CharField(max_length=100, blank=True)
     is_active = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

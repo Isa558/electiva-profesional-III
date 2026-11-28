@@ -94,6 +94,61 @@ class EvaluationApiTests(TestCase):
         self.assertIn('filters', response.data)
         self.assertIn('results', response.data)
 
+    def test_report_filters_aggregate_results_and_export_complete_xlsx(self):
+        self.quiz.academic_period = '2026-2'
+        self.quiz.course_group = 'Sexto A'
+        self.quiz.save(update_fields=['academic_period', 'course_group'])
+        attempt = Attempt.objects.create(
+            user=self.student,
+            quiz=self.quiz,
+            status=Attempt.Status.COMPLETED,
+            grade=Decimal('5.00'),
+            submitted_at=timezone.now(),
+        )
+        from .models import AttemptAnswer
+        AttemptAnswer.objects.create(
+            attempt=attempt,
+            question=self.question,
+            selected_option=self.correct_option,
+        )
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get('/api/reportes/', {
+            'year': timezone.now().year,
+            'period': '2026-2',
+            'course': 'Sexto A',
+            'axis': 'Razonamiento cuantitativo',
+            'student': self.student.username,
+            'page_size': 10,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['summary']['students_evaluated'], 1)
+        self.assertEqual(response.data['summary']['completed_attempts'], 1)
+        self.assertEqual(response.data['summary']['passed'], 1)
+        self.assertEqual(response.data['axes'][0]['correct'], 1)
+        self.assertEqual(response.data['facets']['periods'], ['2026-2'])
+        self.assertEqual(response.data['facets']['courses'], ['Sexto A'])
+        self.assertEqual([row['id'] for row in response.data['results']], [attempt.pk])
+
+        export = self.client.get('/api/reportes/export/consolidated/', {
+            'period': '2026-2',
+            'course': 'Sexto A',
+        })
+        self.assertEqual(export.status_code, 200)
+        workbook = load_workbook(BytesIO(export.content), read_only=True)
+        self.assertIn('Consolidado general', workbook.sheetnames)
+        self.assertIn('Preguntas difíciles', workbook.sheetnames)
+        self.assertEqual(workbook['Consolidado general']['A5'].value, timezone.now().year)
+        for report_type in ['axes', 'history']:
+            export = self.client.get(f'/api/reportes/export/{report_type}/', {'student': 'sin-resultados'})
+            self.assertEqual(export.status_code, 200)
+            self.assertEqual(load_workbook(BytesIO(export.content), read_only=True).active.max_row, 4)
+
+    def test_report_export_requires_authentication_and_rejects_bad_type(self):
+        self.assertEqual(self.client.get('/api/reportes/export/history/').status_code, 401)
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.get('/api/reportes/export/unknown/').status_code, 404)
+
     def test_jwt_login_refresh_and_logout(self):
         response = self.client.post('/api/auth/token/', {'username': 'student-demo', 'password': 'Student-demo-123!'}, format='json')
         self.assertEqual(response.status_code, 200)
@@ -341,6 +396,20 @@ class EvaluationApiTests(TestCase):
         Attempt.objects.create(user=self.student, quiz=self.quiz)
         response = self.client.post(f'/api/quizzes/{self.quiz.pk}/attempts/', {}, format='json')
         self.assertEqual(response.status_code, 400)
+
+    def test_student_cannot_save_answers_after_attempt_deadline(self):
+        attempt = Attempt.objects.create(user=self.student, quiz=self.quiz)
+        Attempt.objects.filter(pk=attempt.pk).update(
+            started_at=timezone.now() - timedelta(minutes=self.quiz.duration_minutes + 1),
+        )
+        self.client.force_authenticate(self.student)
+        response = self.client.post(
+            f'/api/attempts/{attempt.pk}/answers/',
+            {'question_id': self.question.pk, 'option_id': self.correct_option.pk},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(attempt.answers.exists())
 
     def test_question_cannot_be_deactivated_during_an_active_attempt(self):
         Attempt.objects.create(user=self.student, quiz=self.quiz)
@@ -631,3 +700,27 @@ class EvaluationApiTests(TestCase):
         self.assertEqual(history.status_code, 200)
         self.assertEqual(history.data[0]['file_name'], 'invalid.xlsx')
         self.assertEqual(history.data[0]['error_rows'], 1)
+
+    def test_import_can_attach_new_questions_to_an_authorized_quiz(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.post('/api/imports/commit/', {
+            'file_name': 'quiz.xlsx',
+            'quiz_id': self.quiz.pk,
+            'rows': [{
+                'rowNumber': 2,
+                'values': {
+                    'categoria': 'Inglés',
+                    'competencia': 'Lectura',
+                    'tipo': 'MULTIPLE',
+                    'enunciado': 'Pregunta vinculada al cuestionario',
+                    'puntaje_defecto': '1',
+                    'opcion_a': 'A',
+                    'opcion_b': 'B',
+                    'correcta': 'A',
+                },
+            }],
+        }, format='json')
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(self.quiz.questions.filter(stem='Pregunta vinculada al cuestionario').exists())
+        from .models import ImportRecord
+        self.assertEqual(ImportRecord.objects.get(pk=response.data['id']).destination_quiz, self.quiz)

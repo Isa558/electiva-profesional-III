@@ -204,7 +204,7 @@ class QuizSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Quiz
-        fields = ['id', 'title', 'description', 'created_by_name', 'question_ids', 'question_count', 'opens_at', 'closes_at', 'duration_minutes', 'attempts_allowed', 'max_grade', 'passing_grade', 'is_active']
+        fields = ['id', 'title', 'description', 'created_by_name', 'question_ids', 'question_count', 'opens_at', 'closes_at', 'duration_minutes', 'attempts_allowed', 'max_grade', 'passing_grade', 'academic_period', 'course_group', 'is_active']
 
     @extend_schema_field(serializers.CharField())
     def get_created_by_name(self, quiz):
@@ -262,7 +262,7 @@ class AvailableQuizSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Quiz
-        fields = ['id', 'title', 'description', 'created_by_name', 'opens_at', 'closes_at', 'duration_minutes', 'attempts_allowed', 'max_grade', 'passing_grade', 'question_count', 'attempts_remaining']
+        fields = ['id', 'title', 'description', 'created_by_name', 'opens_at', 'closes_at', 'duration_minutes', 'attempts_allowed', 'max_grade', 'passing_grade', 'academic_period', 'course_group', 'question_count', 'attempts_remaining']
 
     @extend_schema_field(serializers.IntegerField())
     def get_attempts_remaining(self, quiz):

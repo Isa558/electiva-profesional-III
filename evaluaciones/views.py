@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from zipfile import BadZipFile
@@ -6,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.db import transaction
 from django.db import DatabaseError, connection
-from django.db.models import Count, Q
+from django.db.models import Avg, Count, Max, Min, Q, Subquery
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -415,6 +416,209 @@ class AttemptListView(APIView):
         return Response(AttemptSerializer(attempts, many=True).data)
 
 
+def _report_attempts_for_user(user):
+    attempts = Attempt.objects.select_related('quiz', 'user', 'user__profile').prefetch_related('answers')
+    if user.is_superuser:
+        return attempts, None
+    try:
+        role = user.profile.role
+    except UserProfile.DoesNotExist:
+        return None, Response({'detail': 'La cuenta no tiene un rol asignado.'}, status=status.HTTP_403_FORBIDDEN)
+    if not role.is_active:
+        return None, Response({'detail': 'El rol de esta cuenta está desactivado.'}, status=status.HTTP_403_FORBIDDEN)
+    if 'results.view_all' in role.permissions:
+        return attempts, None
+    if 'results.view_assigned' in role.permissions:
+        return attempts.filter(quiz__created_by=user), None
+    if 'results.view_own' in role.permissions:
+        return attempts.filter(user=user), None
+    return None, Response({'detail': 'Tu rol no puede consultar resultados.'}, status=status.HTTP_403_FORBIDDEN)
+
+
+def _filtered_report_attempts(attempts, params):
+    filters = {
+        'year': params.get('year') or '',
+        'period': params.get('period') or '',
+        'course': params.get('group') or params.get('course') or '',
+        'axis': params.get('axis') or '',
+        'student': params.get('student') or '',
+    }
+    if filters['year']:
+        try:
+            filters['year'] = int(filters['year'])
+        except (TypeError, ValueError):
+            return None, filters, Response({'year': 'Debe ser un año válido.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not 2000 <= filters['year'] <= 2100:
+            return None, filters, Response({'year': 'El año debe estar entre 2000 y 2100.'}, status=status.HTTP_400_BAD_REQUEST)
+        attempts = attempts.filter(started_at__year=filters['year'])
+    if filters['period']:
+        attempts = attempts.filter(quiz__academic_period=filters['period'])
+    if filters['course']:
+        if params.get('group'):
+            attempts = attempts.filter(quiz__course_group=filters['course'])
+        else:
+            attempts = attempts.filter(
+                Q(quiz__course_group__icontains=filters['course'])
+                | Q(quiz__title__icontains=filters['course'])
+                | Q(user__profile__institutional_code__icontains=filters['course'])
+            )
+    if filters['axis']:
+        quizzes_with_axis = Quiz.objects.filter(
+            Q(questions__competency__icontains=filters['axis'])
+            | Q(questions__category__name__icontains=filters['axis'])
+            | Q(questions__category__competency__icontains=filters['axis'])
+        )
+        attempts = attempts.filter(quiz_id__in=Subquery(quizzes_with_axis.values('pk')))
+    if filters['student']:
+        attempts = attempts.filter(
+            Q(user__username__icontains=filters['student'])
+            | Q(user__first_name__icontains=filters['student'])
+            | Q(user__last_name__icontains=filters['student'])
+            | Q(user__profile__institutional_code__icontains=filters['student'])
+        )
+    return attempts.distinct(), filters, None
+
+
+def _report_facets(attempts, filters):
+    years = list(attempts.values_list('started_at__year', flat=True).distinct().order_by('started_at__year'))
+    period_scope = attempts.filter(started_at__year=filters['year']) if filters['year'] else attempts
+    periods = list(period_scope.exclude(quiz__academic_period='').order_by('quiz__academic_period').values_list('quiz__academic_period', flat=True).distinct())
+    group_scope = period_scope.filter(quiz__academic_period=filters['period']) if filters['period'] else period_scope
+    groups = list(group_scope.exclude(quiz__course_group='').order_by('quiz__course_group').values_list('quiz__course_group', flat=True).distinct())
+    selected_group_scope = group_scope.filter(quiz__course_group=filters['course']) if filters['course'] else group_scope
+    axis_rows = selected_group_scope.values_list(
+        'quiz__questions__competency', 'quiz__questions__category__competency', 'quiz__questions__category__name',
+    ).distinct()
+    axes = sorted({
+        competency or category_competency or category_name
+        for competency, category_competency, category_name in axis_rows
+        if competency or category_competency or category_name
+    }, key=str.casefold)
+    student_scope = selected_group_scope
+    if filters['axis']:
+        axis_quizzes = Quiz.objects.filter(
+            Q(questions__competency__icontains=filters['axis'])
+            | Q(questions__category__name__icontains=filters['axis'])
+            | Q(questions__category__competency__icontains=filters['axis'])
+        ).values('pk')
+        student_scope = student_scope.filter(quiz_id__in=Subquery(axis_quizzes))
+    student_rows = student_scope.order_by('user__last_name', 'user__first_name', 'user__username').values(
+        'user__username', 'user__first_name', 'user__last_name', 'user__profile__institutional_code',
+    ).distinct()
+    students = [{
+        'username': row['user__username'],
+        'name': ' '.join(filter(None, [row['user__first_name'], row['user__last_name']])) or row['user__username'],
+        'code': row['user__profile__institutional_code'] or '',
+    } for row in student_rows]
+    return {'years': years, 'periods': periods, 'courses': groups, 'axes': axes, 'students': students}
+
+
+def _report_aggregates(attempts, axis_filter=''):
+    completed = attempts.filter(status=Attempt.Status.COMPLETED, grade__isnull=False)
+    summary = completed.aggregate(average=Avg('grade'), minimum=Min('grade'), maximum=Max('grade'))
+    rows = list(completed.values('grade', 'quiz__passing_grade', 'user_id'))
+    passed = sum(1 for row in rows if row['grade'] >= row['quiz__passing_grade'])
+    period_rows = list(completed.values('started_at__year', 'quiz__academic_period').annotate(
+        attempts=Count('id', distinct=True),
+        students=Count('user_id', distinct=True),
+        average=Avg('grade'),
+        minimum=Min('grade'),
+        maximum=Max('grade'),
+    ).order_by('started_at__year', 'quiz__academic_period'))
+    course_rows = list(completed.values(
+        'quiz__course_group', 'started_at__year', 'quiz__academic_period',
+    ).annotate(
+        attempts=Count('id', distinct=True),
+        students=Count('user_id', distinct=True),
+        average=Avg('grade'),
+        minimum=Min('grade'),
+        maximum=Max('grade'),
+    ).order_by('quiz__course_group', 'started_at__year', 'quiz__academic_period'))
+    student_rows = list(completed.values(
+        'user_id', 'user__username', 'user__first_name', 'user__last_name',
+    ).annotate(
+        attempts=Count('id', distinct=True),
+        average=Avg('grade'),
+        minimum=Min('grade'),
+        maximum=Max('grade'),
+    ).order_by('user__last_name', 'user__first_name', 'user__username'))
+    answers = AttemptAnswer.objects.filter(
+        attempt__in=completed,
+        selected_option__isnull=False,
+    )
+    if axis_filter:
+        answers = answers.filter(
+            Q(question__competency__icontains=axis_filter)
+            | Q(question__category__name__icontains=axis_filter)
+            | Q(question__category__competency__icontains=axis_filter)
+        )
+    axis_rows = answers.values('question__competency', 'question__category__competency', 'question__category__name').annotate(
+        total=Count('id'),
+        correct=Count('id', filter=Q(selected_option__is_correct=True)),
+    ).order_by('question__category__name', 'question__competency')
+    axes = []
+    for row in axis_rows:
+        label = row['question__competency'] or row['question__category__competency'] or row['question__category__name']
+        axes.append({
+            'axis': label,
+            'responses': row['total'],
+            'correct': row['correct'],
+            'incorrect': row['total'] - row['correct'],
+            'accuracy_percent': round(row['correct'] * 100 / row['total'], 2) if row['total'] else 0,
+        })
+    question_rows = answers.values('question_id', 'question__stem', 'question__competency', 'question__category__name').annotate(
+        total=Count('id'),
+        correct=Count('id', filter=Q(selected_option__is_correct=True)),
+    ).order_by('question__competency', 'question__category__name', 'question_id')
+    difficulty = [{
+        'question_id': row['question_id'],
+        'question': row['question__stem'],
+        'axis': row['question__competency'] or row['question__category__name'],
+        'responses': row['total'],
+        'correct': row['correct'],
+        'incorrect': row['total'] - row['correct'],
+        'accuracy_percent': round(row['correct'] * 100 / row['total'], 2) if row['total'] else 0,
+    } for row in question_rows]
+    difficulty.sort(key=lambda row: (row['accuracy_percent'], -row['responses'], row['question_id']))
+    return {
+        'students_evaluated': len({row['user_id'] for row in rows}),
+        'completed_attempts': len(rows),
+        'average_grade': round(float(summary['average']), 2) if summary['average'] is not None else None,
+        'minimum_grade': float(summary['minimum']) if summary['minimum'] is not None else None,
+        'maximum_grade': float(summary['maximum']) if summary['maximum'] is not None else None,
+        'passed': passed,
+        'failed': len(rows) - passed,
+        'by_period': [{
+            'year': row['started_at__year'],
+            'period': row['quiz__academic_period'],
+            'attempts': row['attempts'],
+            'students': row['students'],
+            'average': round(float(row['average']), 2) if row['average'] is not None else None,
+            'minimum': float(row['minimum']) if row['minimum'] is not None else None,
+            'maximum': float(row['maximum']) if row['maximum'] is not None else None,
+        } for row in period_rows],
+        'by_course': [{
+            'course': row['quiz__course_group'] or 'Sin curso/grupo',
+            'year': row['started_at__year'],
+            'period': row['quiz__academic_period'],
+            'attempts': row['attempts'],
+            'students': row['students'],
+            'average': round(float(row['average']), 2) if row['average'] is not None else None,
+            'minimum': float(row['minimum']) if row['minimum'] is not None else None,
+            'maximum': float(row['maximum']) if row['maximum'] is not None else None,
+        } for row in course_rows],
+        'by_student': [{
+            'student_id': row['user_id'],
+            'student': ' '.join(filter(None, [row['user__first_name'], row['user__last_name']])) or row['user__username'],
+            'username': row['user__username'],
+            'attempts': row['attempts'],
+            'average': round(float(row['average']), 2) if row['average'] is not None else None,
+            'minimum': float(row['minimum']) if row['minimum'] is not None else None,
+            'maximum': float(row['maximum']) if row['maximum'] is not None else None,
+        } for row in student_rows],
+    }, axes, difficulty
+
+
 class ReportView(APIView):
     serializer_class = AttemptSerializer
     permission_classes = [IsAuthenticated]
@@ -422,56 +626,160 @@ class ReportView(APIView):
     @extend_schema(
         parameters=[
             OpenApiParameter(name='year', type=int, required=False, description='Año del intento'),
-            OpenApiParameter(name='course', type=str, required=False, description='Curso o título del simulacro'),
+            OpenApiParameter(name='period', type=str, required=False, description='Período académico del cuestionario'),
+            OpenApiParameter(name='course', type=str, required=False, description='Curso, grupo o título del simulacro'),
             OpenApiParameter(name='axis', type=str, required=False, description='Eje temático, categoría o competencia'),
+            OpenApiParameter(name='student', type=str, required=False, description='Nombre, usuario o identificación'),
+            OpenApiParameter(name='page', type=int, required=False, description='Página de resultados'),
+            OpenApiParameter(name='page_size', type=int, required=False, description='Filas por página (máximo 100)'),
         ],
-        responses={200: AttemptSerializer(many=True)},
     )
     def get(self, request):
-        if request.user.is_superuser:
-            attempts = Attempt.objects.select_related('quiz', 'user').all()
-        else:
-            try:
-                role = request.user.profile.role
-            except UserProfile.DoesNotExist:
-                return Response({'detail': 'La cuenta no tiene un rol asignado.'}, status=status.HTTP_403_FORBIDDEN)
-            if not role.is_active:
-                return Response({'detail': 'El rol de esta cuenta está desactivado.'}, status=status.HTTP_403_FORBIDDEN)
-            if 'results.view_all' in role.permissions:
-                attempts = Attempt.objects.select_related('quiz', 'user').all()
-            elif 'results.view_assigned' in role.permissions:
-                attempts = Attempt.objects.select_related('quiz', 'user').filter(quiz__created_by=request.user)
-            elif 'results.view_own' in role.permissions:
-                attempts = Attempt.objects.select_related('quiz', 'user').filter(user=request.user)
-            else:
-                return Response({'detail': 'Tu rol no puede consultar resultados.'}, status=status.HTTP_403_FORBIDDEN)
-
-        year = request.query_params.get('year')
-        course = request.query_params.get('course')
-        axis = request.query_params.get('axis')
-        if year:
-            try:
-                year = int(year)
-            except (TypeError, ValueError):
-                return Response({'year': 'Debe ser un año válido.'}, status=status.HTTP_400_BAD_REQUEST)
-            attempts = attempts.filter(started_at__year=year)
-        if course:
-            attempts = attempts.filter(
-                Q(quiz__title__icontains=course)
-                | Q(user__profile__institutional_code__icontains=course)
-                | Q(quiz__questions__category__name__icontains=course)
-            ).distinct()
-        if axis:
-            attempts = attempts.filter(
-                Q(quiz__questions__competency__icontains=axis)
-                | Q(quiz__questions__category__name__icontains=axis)
-                | Q(quiz__questions__category__competency__icontains=axis)
-            ).distinct()
+        attempts, error = _report_attempts_for_user(request.user)
+        if error:
+            return error
+        all_attempts = attempts
+        attempts, filters, error = _filtered_report_attempts(attempts, request.query_params)
+        if error:
+            return error
+        summary, axes, difficulty = _report_aggregates(attempts, filters['axis'])
+        page = request.query_params.get('page', '1')
+        page_size = request.query_params.get('page_size', '10')
+        try:
+            page = int(page)
+            page_size = int(page_size)
+        except (TypeError, ValueError):
+            return Response({'detail': 'La página y el tamaño deben ser números enteros.'}, status=status.HTTP_400_BAD_REQUEST)
+        if page < 1 or page_size < 1 or page_size > 100:
+            return Response({'detail': 'La página debe ser positiva y el tamaño debe estar entre 1 y 100.'}, status=status.HTTP_400_BAD_REQUEST)
+        count = attempts.count()
+        start = (page - 1) * page_size
+        results = attempts.order_by('-started_at', '-id')[start:start + page_size]
         return Response({
-            'filters': {'year': year, 'course': course, 'axis': axis},
-            'count': attempts.count(),
-            'results': AttemptSerializer(attempts, many=True).data,
+            'filters': filters,
+            'facets': _report_facets(all_attempts, filters),
+            'summary': summary,
+            'axes': axes,
+            'difficulty': difficulty,
+            'count': count,
+            'page': page,
+            'page_size': page_size,
+            'pages': (count + page_size - 1) // page_size,
+            'results': AttemptSerializer(results, many=True, context={'request': request}).data,
         })
+
+
+class ReportExportView(APIView):
+    serializer_class = serializers.Serializer
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, report_type):
+        if report_type not in {'consolidated', 'axes', 'history'}:
+            return Response({'detail': 'Tipo de informe no válido.'}, status=status.HTTP_404_NOT_FOUND)
+        attempts, error = _report_attempts_for_user(request.user)
+        if error:
+            return error
+        attempts, filters, error = _filtered_report_attempts(attempts, request.query_params)
+        if error:
+            return error
+        summary, axes, difficulty = _report_aggregates(attempts, filters['axis'])
+        workbook = Workbook()
+        sheet = workbook.active
+        report_names = {
+            'consolidated': 'Consolidado general',
+            'axes': 'Desempeño por eje',
+            'history': 'Historial individual',
+        }
+        sheet.title = report_names[report_type][:31]
+        sheet.append([report_names[report_type]])
+        sheet.append([f'Generado: {timezone.localtime().strftime("%Y-%m-%d %H:%M:%S")}'])
+        sheet.append([f'Filtros: {filters}'])
+        if report_type == 'axes':
+            sheet.append(['Eje temático', 'Respuestas registradas', 'Aciertos', 'Errores', 'Porcentaje de aciertos'])
+            for row in axes:
+                sheet.append([row['axis'], row['responses'], row['correct'], row['incorrect'], row['accuracy_percent']])
+        elif report_type == 'history':
+            sheet.append(['Estudiante', 'Identificación', 'Curso/grupo', 'Período', 'Simulacro', 'Fecha', 'Preguntas respondidas', 'Aciertos', 'Errores', 'Nota final', 'Estado'])
+            answer_stats = {
+                row['attempt_id']: row
+                for row in AttemptAnswer.objects.filter(attempt__in=attempts, selected_option__isnull=False)
+                .values('attempt_id').annotate(
+                    answered=Count('id'),
+                    correct=Count('id', filter=Q(selected_option__is_correct=True)),
+                )
+            }
+            for attempt in attempts.order_by('started_at', 'id'):
+                answers = answer_stats.get(attempt.id, {})
+                try:
+                    code = attempt.user.profile.institutional_code or ''
+                except UserProfile.DoesNotExist:
+                    code = ''
+                sheet.append([
+                    attempt.user.get_full_name() or attempt.user.username, code,
+                    attempt.quiz.course_group, attempt.quiz.academic_period, attempt.quiz.title,
+                    timezone.localtime(attempt.submitted_at or attempt.started_at).strftime('%Y-%m-%d %H:%M:%S'),
+                    answers.get('answered', 0), answers.get('correct', 0),
+                    answers.get('answered', 0) - answers.get('correct', 0),
+                    float(attempt.grade) if attempt.grade is not None else None, attempt.get_status_display(),
+                ])
+        else:
+            sheet.append(['Año', 'Período', 'Curso/grupo', 'Estudiante', 'Identificación', 'Simulacro', 'Fecha', 'Calificación', 'Estado'])
+            for attempt in attempts.order_by('-started_at', '-id'):
+                try:
+                    code = attempt.user.profile.institutional_code or ''
+                except UserProfile.DoesNotExist:
+                    code = ''
+                sheet.append([
+                    attempt.started_at.year, attempt.quiz.academic_period, attempt.quiz.course_group,
+                    attempt.user.get_full_name() or attempt.user.username, code, attempt.quiz.title,
+                    timezone.localtime(attempt.submitted_at or attempt.started_at).strftime('%Y-%m-%d %H:%M:%S'),
+                    float(attempt.grade) if attempt.grade is not None else None, attempt.get_status_display(),
+                ])
+            difficulty_sheet = workbook.create_sheet('Preguntas difíciles')
+            difficulty_sheet.append(['Pregunta ID', 'Eje temático', 'Pregunta', 'Respuestas', 'Aciertos', 'Errores', 'Porcentaje de aciertos'])
+            for row in difficulty:
+                difficulty_sheet.append([
+                    row['question_id'], row['axis'], row['question'], row['responses'],
+                    row['correct'], row['incorrect'], row['accuracy_percent'],
+                ])
+            summary_sheet = workbook.create_sheet('Resumen')
+            summary_sheet.append(['Indicador', 'Valor'])
+            scalar_summary = {key: value for key, value in summary.items() if not isinstance(value, list)}
+            for key, value in scalar_summary.items():
+                summary_sheet.append([key.replace('_', ' ').title(), value])
+            period_sheet = workbook.create_sheet('Por período')
+            period_sheet.append(['Año', 'Período', 'Intentos', 'Estudiantes', 'Promedio', 'Mínima', 'Máxima'])
+            for row in summary['by_period']:
+                period_sheet.append([row['year'], row['period'], row['attempts'], row['students'], row['average'], row['minimum'], row['maximum']])
+            course_sheet = workbook.create_sheet('Por curso')
+            course_sheet.append(['Curso/grupo', 'Año', 'Período', 'Intentos', 'Estudiantes', 'Promedio', 'Mínima', 'Máxima'])
+            for row in summary['by_course']:
+                course_sheet.append([row['course'], row['year'], row['period'], row['attempts'], row['students'], row['average'], row['minimum'], row['maximum']])
+            student_sheet = workbook.create_sheet('Por estudiante')
+            student_sheet.append(['Estudiante', 'Usuario', 'Intentos', 'Promedio', 'Mínima', 'Máxima'])
+            for row in summary['by_student']:
+                student_sheet.append([row['student'], row['username'], row['attempts'], row['average'], row['minimum'], row['maximum']])
+        for current_sheet in workbook.worksheets:
+            header_row = 4 if current_sheet is sheet else 1
+            current_sheet.freeze_panes = f'A{header_row + 1}'
+            current_sheet.auto_filter.ref = f'A{header_row}:{current_sheet.cell(current_sheet.max_row, current_sheet.max_column).coordinate}'
+            for cell in current_sheet[header_row]:
+                cell.font = cell.font.copy(bold=True)
+            for column in current_sheet.columns:
+                current_sheet.column_dimensions[column[0].column_letter].width = min(
+                    max(14, max(len(str(cell.value or '')) for cell in column) + 2), 60,
+                )
+                for cell in column:
+                    if isinstance(cell.value, float):
+                        cell.number_format = '0.00'
+        buffer = BytesIO()
+        workbook.save(buffer)
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="reporte-{report_type}-{timezone.localdate().isoformat()}.xlsx"'
+        return response
 
 
 class AttemptDetailView(APIView):
@@ -512,6 +820,11 @@ class AttemptAnswerView(APIView):
 
     def post(self, request, pk):
         attempt = get_object_or_404(Attempt, pk=pk, user=request.user)
+        if attempt.status == Attempt.Status.COMPLETED:
+            return Response({'detail': 'El intento ya fue finalizado.'}, status=status.HTTP_400_BAD_REQUEST)
+        deadline = attempt.started_at + timedelta(minutes=attempt.quiz.duration_minutes)
+        if timezone.now() >= deadline:
+            return Response({'detail': 'El tiempo del intento terminó; envía la evaluación para calificar las respuestas guardadas.'}, status=status.HTTP_400_BAD_REQUEST)
         serializer = AttemptAnswerSerializer(data=request.data, context={'attempt': attempt})
         serializer.is_valid(raise_exception=True)
         answer, _ = AttemptAnswer.objects.update_or_create(
@@ -724,10 +1037,32 @@ class ImportCommitView(APIView):
             return Response({'detail': 'El nombre del archivo no es válido.'}, status=status.HTTP_400_BAD_REQUEST)
         if not isinstance(rows, list) or not rows or len(rows) > 5000:
             return Response({'detail': 'La importación debe contener entre 1 y 5000 filas.'}, status=status.HTTP_400_BAD_REQUEST)
+        quiz_id = request.data.get('quiz_id')
+        destination_quiz = None
+        if quiz_id not in (None, ''):
+            try:
+                quiz_id = int(quiz_id)
+            except (TypeError, ValueError):
+                return Response({'quiz_id': 'Selecciona un cuestionario válido.'}, status=status.HTTP_400_BAD_REQUEST)
+            destination_quiz = get_object_or_404(Quiz.objects.select_for_update(), pk=quiz_id)
+            if not request.user.is_superuser:
+                try:
+                    role = request.user.profile.role
+                except UserProfile.DoesNotExist:
+                    return Response({'detail': 'La cuenta no tiene un rol asignado.'}, status=status.HTTP_403_FORBIDDEN)
+                if (
+                    not role.is_active
+                    or 'quizzes.manage' not in role.permissions
+                    or ('results.view_all' not in role.permissions and destination_quiz.created_by_id != request.user.id)
+                ):
+                    return Response({'detail': 'No tienes permiso para agregar preguntas a ese cuestionario.'}, status=status.HTTP_403_FORBIDDEN)
+            if destination_quiz.attempts.exists():
+                return Response({'detail': 'No se pueden agregar preguntas a un cuestionario con intentos iniciados.'}, status=status.HTTP_400_BAD_REQUEST)
         valid, errors = validate_import_rows(rows)
         record = ImportRecord.objects.create(
             file_name=file_name.strip(),
             created_by=request.user,
+            destination_quiz=destination_quiz,
             total_rows=len(rows),
             imported_rows=0,
             duplicate_rows=sum(
@@ -739,6 +1074,7 @@ class ImportCommitView(APIView):
         )
         if errors:
             return Response({'detail': 'Corrige los errores antes de guardar; no se importó ninguna pregunta.', 'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+        imported_questions = []
         for row in valid:
             category, _ = Category.objects.get_or_create(
                 name__iexact=row['category'],
@@ -757,6 +1093,9 @@ class ImportCommitView(APIView):
                 AnswerOption(question=question, letter=option['letter'], text=option['text'], is_correct=option['letter'] == row['correct'])
                 for option in row['options']
             ])
+            imported_questions.append(question)
+        if destination_quiz:
+            destination_quiz.questions.add(*imported_questions)
         record.imported_rows = len(valid)
         record.save(update_fields=['imported_rows'])
         return Response({'total': len(rows), 'successful': len(valid), 'failed': 0, 'id': record.id}, status=status.HTTP_201_CREATED)

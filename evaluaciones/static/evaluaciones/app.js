@@ -63,6 +63,7 @@
     submitting: false,
     pendingAnswers: new Set(),
     reportFilters: {},
+    reportPage: 1,
     importDraft: null,
     importResult: null,
     modalSubmit: null,
@@ -72,6 +73,23 @@
     return String(value ?? '').replace(/[&<>"']/g, character => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     })[character]);
+  }
+
+  async function exportReport(reportType) {
+    const params = new URLSearchParams();
+    for (const key of ['year', 'period', 'course', 'axis', 'student']) {
+      if (app.reportFilters?.[key]) params.set(key === 'course' ? 'group' : key, app.reportFilters[key]);
+    }
+    try {
+      const response = await request(`reportes/export/${encodeURIComponent(reportType)}/?${params.toString()}`);
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(response);
+      link.download = `reporte-${reportType}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      toast(error.message, 'error');
+    }
   }
 
   function fullName(user = app.user) {
@@ -526,15 +544,19 @@
   }
 
   async function renderImports() {
-    const records = await api.get('imports/');
+    const [records, quizzes] = await Promise.all([
+      api.get('imports/'),
+      can('quizzes.manage') ? api.get('quizzes/') : Promise.resolve([]),
+    ]);
     const rows = records.map(record => `<tr data-search="${escapeHtml(`${record.file_name} ${record.created_by_name}`.toLocaleLowerCase('es'))}">
-      <td><strong>${escapeHtml(record.file_name)}</strong><small>${escapeHtml(record.created_by_name)}</small></td>
+      <td><strong>${escapeHtml(record.file_name)}</strong><small>${escapeHtml(record.created_by_name)}${record.destination_title ? ` · ${escapeHtml(record.destination_title)}` : ''}</small></td>
       <td>${escapeHtml(formatDate(record.created_at))}</td><td>${record.total_rows}</td><td><span class="status-pill pill-green">${record.imported_rows}</span></td>
       <td>${record.duplicate_rows ? `<span class="status-pill pill-amber">${record.duplicate_rows}</span>` : '0'}</td>
       <td>${record.error_rows ? `<button class="text-link" data-action="import-errors" data-id="${record.id}">${record.error_rows} ver errores</button>` : '0'}</td></tr>`);
     $('#page-content').innerHTML = `${heading('Importar preguntas', 'Carga preguntas desde una plantilla Excel y verifica el contenido antes de guardarlo.', '<button class="btn btn-secondary" data-action="download-template">↓ Descargar plantilla Excel</button>')}
       <section class="panel"><div class="panel-title"><div><h3>Importación desde Excel</h3><p>Formato .xlsx · máximo 10 MB · hasta 5.000 filas.</p></div></div>
         <div class="drop-zone" id="drop-zone"><div><div class="drop-icon">⇧</div><strong>Selecciona el archivo .xlsx</strong><p>Arrastra el archivo aquí o elígelo desde tu equipo.</p><p class="file-meta" id="selected-file">Ningún archivo seleccionado</p><input type="file" id="import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden><div class="heading-actions" style="justify-content:center;margin-top:10px"><button class="btn btn-secondary" type="button" data-action="choose-file">Seleccionar archivo</button><button class="btn btn-primary" type="button" data-action="preview-import">Validar archivo</button></div></div></div>
+        ${can('quizzes.manage') ? `<div class="field"><label for="import-destination-quiz">Agregar preguntas a un cuestionario (opcional)</label><select id="import-destination-quiz" class="select-field"><option value="">Solo agregar al banco de preguntas</option>${quizzes.map(quiz => `<option value="${quiz.id}">${escapeHtml(quiz.title)}${quiz.is_active ? ' · habilitado' : ''}</option>`).join('')}</select><span class="field-hint">No se puede modificar un cuestionario que ya tenga intentos.</span></div>` : ''}
         <div class="callout">En <strong>categoria</strong> escribe la materia (por ejemplo, Matemáticas o Español); en <strong>competencia</strong> y <strong>puntaje_defecto</strong> registra los datos obligatorios de cada pregunta. La materia queda registrada como categoría y se asigna a la pregunta.</div>
         <div class="callout">Primero se valida el archivo en el servidor. Si existe alguna fila inválida o duplicada, la importación completa se cancela para evitar guardar datos parciales.</div>
         <div id="import-preview" hidden></div></section>
@@ -590,18 +612,12 @@
 
   async function renderResults(ownOnly) {
     const currentReportFilters = app.reportFilters || {};
-    let attempts;
-    if (currentReportFilters.year || currentReportFilters.course || currentReportFilters.axis) {
-      const params = new URLSearchParams();
-      if (currentReportFilters.year) params.set('year', currentReportFilters.year);
-      if (currentReportFilters.course) params.set('course', currentReportFilters.course);
-      if (currentReportFilters.axis) params.set('axis', currentReportFilters.axis);
-      const report = await api.get(`reportes/?${params.toString()}`);
-      attempts = report.results || [];
-    } else {
-      attempts = await api.get('attempts/');
+    const params = new URLSearchParams({ page: String(app.reportPage || 1), page_size: '10' });
+    for (const key of ['year', 'period', 'course', 'axis', 'student']) {
+      if (currentReportFilters[key]) params.set(key === 'course' ? 'group' : key, currentReportFilters[key]);
     }
-    const items = ownOnly ? attempts.filter(item => item.student_username === app.user.username) : attempts;
+    const report = await api.get(`reportes/?${params.toString()}`);
+    const items = report.results || [];
     const historyPage = app.page === 'history';
     const columns = ownOnly
       ? historyPage
@@ -625,49 +641,77 @@
             <td><strong>${item.grade === null ? 'En curso' : `${escapeHtml(item.grade)} / ${escapeHtml(item.max_grade)}`}</strong></td>
             <td>${gradePill(item.grade, item.max_grade, item.passing_grade)}</td>
             <td><button class="text-link" data-action="attempt-detail" data-id="${item.id}">Ver detalle</button></td></tr>`
-        : `<tr data-search="${escapeHtml(`${item.student_username} ${item.quiz_title} ${item.status}`.toLocaleLowerCase('es'))}" data-status="${item.status}">
-          <td><strong>${escapeHtml(item.student_username)}</strong></td><td>${escapeHtml(item.quiz_title)}</td>
+        : `<tr data-search="${escapeHtml(`${item.student_name} ${item.student_username} ${item.quiz_title} ${item.status}`.toLocaleLowerCase('es'))}" data-status="${item.status}">
+          <td><strong>${escapeHtml(item.student_name || item.student_username)}</strong><small>${escapeHtml(item.student_code || '')}</small></td><td>${escapeHtml(item.quiz_title)}</td>
           <td>${escapeHtml(formatDate(item.started_at))}</td><td>${escapeHtml(formatDate(item.submitted_at))}</td>
           <td>${item.grade === null ? '—' : `<strong>${escapeHtml(item.grade)} / ${escapeHtml(item.max_grade)}</strong>`}</td>
           <td>${item.status === 'COMPLETED' ? gradePill(item.grade, item.max_grade, item.passing_grade) : '<span class="status-pill pill-amber">En curso</span>'}</td>
           <td><button class="icon-action" data-action="attempt-detail" data-id="${item.id}" title="Ver detalle">↗</button></td></tr>`;
     });
-    const quizFilter = [...new Map(items.map(item => [item.quiz, item.quiz_title])).entries()];
-    const filters = `<select class="select-field" data-status-filter><option value="">Todos los estados</option><option value="COMPLETED">Finalizados</option><option value="IN_PROGRESS">En curso</option></select>
-      <select class="select-field" data-quiz-filter><option value="">Todos los cuestionarios</option>${quizFilter.map(([id, title]) => `<option value="${id}">${escapeHtml(title)}</option>`).join('')}</select>
-      <input class="search-field" type="number" min="2000" max="2100" data-report-year value="${escapeHtml(currentReportFilters.year || '')}" placeholder="Año">
-      <input class="search-field" type="search" data-report-course value="${escapeHtml(currentReportFilters.course || '')}" placeholder="Curso o materia">
-      <input class="search-field" type="search" data-report-axis value="${escapeHtml(currentReportFilters.axis || '')}" placeholder="Eje temático">
+    const facets = report.facets || { years: [], periods: [], courses: [], axes: [], students: [] };
+    const selectOptions = (values, selected, placeholder, map = value => [value, value]) =>
+      `<option value="">${placeholder}</option>${values.map(value => {
+        const [optionValue, label] = map(value);
+        return `<option value="${escapeHtml(optionValue)}" ${String(optionValue) === String(selected || '') ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+      }).join('')}`;
+    const filters = `<select class="select-field" data-report-filter="year">${selectOptions(facets.years, currentReportFilters.year, 'Todos los años')}</select>
+      <select class="select-field" data-report-filter="period">${selectOptions(facets.periods, currentReportFilters.period, 'Todos los períodos')}</select>
+      <select class="select-field" data-report-filter="course">${selectOptions(facets.courses, currentReportFilters.course, 'Todos los cursos/grupos')}</select>
+      <select class="select-field" data-report-filter="axis">${selectOptions(facets.axes, currentReportFilters.axis, 'Todos los ejes')}</select>
+      <select class="select-field" data-report-filter="student">${selectOptions(facets.students, currentReportFilters.student, 'Todos los estudiantes', value => [value.username, `${value.name}${value.code ? ` · ${value.code}` : ''}`])}</select>
       <button class="btn btn-secondary" type="button" data-action="report-clear">Limpiar filtros</button>`;
-    const grades = items.filter(item => item.status === 'COMPLETED').map(item => Number(item.grade)).filter(Number.isFinite);
-    const average = grades.length ? (grades.reduce((sum, grade) => sum + grade, 0) / grades.length).toFixed(2) : '—';
+    const summary = report.summary || {};
+    const exportButtons = `<div class="heading-actions">
+      <button class="btn btn-secondary" data-action="export-report" data-report-type="consolidated">Excel consolidado</button>
+      <button class="btn btn-secondary" data-action="export-report" data-report-type="axes">Excel por eje</button>
+      <button class="btn btn-secondary" data-action="export-report" data-report-type="history">Excel historial</button>
+    </div>`;
     const intro = ownOnly
       ? historyPage ? 'Revisa el detalle de tus evaluaciones anteriores.' : 'Consulta tus calificaciones e intentos personales.'
       : 'Consulta los resultados de los estudiantes según los permisos asignados a tu rol.';
-    const exportButton = '<button class="btn btn-secondary" data-action="export-results">↓ Exportar CSV</button>';
     const title = ownOnly ? historyPage ? 'Historial de intentos' : 'Mis resultados' : 'Resultados de evaluaciones';
-    const tablePanel = `<section class="panel"><div class="panel-title"><div><h3>Registro de intentos</h3><p>Los resultados se generan a partir de los intentos enviados.</p></div>${exportButton}</div>
-      ${toolbar(ownOnly ? 'Buscar cuestionario' : 'Buscar estudiante o cuestionario', filters)}
-      ${table(columns, rows, 'Aún no se han registrado resultados.')}</section>`;
+    const tablePanel = `<section class="panel"><div class="panel-title"><div><h3>Registro de intentos</h3><p>${report.count || 0} intento(s) encontrados; páginas de 10 filas.</p></div></div>
+      ${toolbar('Buscar en esta página', filters)}
+      ${table(columns, rows, 'Aún no se han registrado resultados.')}
+      <div class="heading-actions"><button class="btn btn-secondary" data-action="report-page" data-page-number="${Math.max(1, (report.page || 1) - 1)}" ${report.page <= 1 ? 'disabled' : ''}>Anterior</button>
+      <span>Página ${report.page || 1} de ${report.pages || 1}</span>
+      <button class="btn btn-secondary" data-action="report-page" data-page-number="${Math.min(report.pages || 1, (report.page || 1) + 1)}" ${report.page >= report.pages ? 'disabled' : ''}>Siguiente</button></div></section>`;
+    const axisRows = (report.axes || []).map(row => `<tr><td>${escapeHtml(row.axis)}</td><td>${row.responses}</td><td>${row.correct}</td><td>${row.incorrect}</td><td>${row.accuracy_percent.toFixed(2)}%</td></tr>`);
+    const difficultyRows = (report.difficulty || []).slice(0, 10).map(row => `<tr><td>${row.question_id}</td><td>${escapeHtml(row.axis)}</td><td>${escapeHtml(row.question)}</td><td>${row.responses}</td><td>${row.incorrect}</td><td>${row.accuracy_percent.toFixed(2)}%</td></tr>`);
+    const periodRows = (summary.by_period || []).map(row => `<tr><td>${row.year}</td><td>${escapeHtml(row.period || '—')}</td><td>${row.students}</td><td>${row.attempts}</td><td>${row.average == null ? '—' : Number(row.average).toFixed(2)}</td><td>${row.minimum ?? '—'}</td><td>${row.maximum ?? '—'}</td></tr>`);
+    const courseRows = (summary.by_course || []).map(row => `<tr><td>${escapeHtml(row.course)}</td><td>${row.year}</td><td>${escapeHtml(row.period || '—')}</td><td>${row.students}</td><td>${row.attempts}</td><td>${row.average == null ? '—' : Number(row.average).toFixed(2)}</td><td>${row.minimum ?? '—'}</td><td>${row.maximum ?? '—'}</td></tr>`);
+    const studentRows = (summary.by_student || []).map(row => `<tr><td>${escapeHtml(row.student)}</td><td>${escapeHtml(row.username)}</td><td>${row.attempts}</td><td>${row.average == null ? '—' : Number(row.average).toFixed(2)}</td><td>${row.minimum ?? '—'}</td><td>${row.maximum ?? '—'}</td></tr>`);
+    const reportTables = `<section class="panel"><div class="panel-title"><div><h3>Desempeño por eje</h3><p>Se calcula con respuestas registradas de intentos finalizados.</p></div></div>
+      ${table(['EJE TEMÁTICO', 'RESPUESTAS', 'ACIERTOS', 'ERRORES', '% ACIERTOS'], axisRows, 'Sin respuestas contestadas para estos filtros.')}</section>
+      <section class="panel"><div class="panel-title"><div><h3>Preguntas de mayor dificultad</h3><p>Ordenadas por menor porcentaje de acierto; solo preguntas respondidas.</p></div></div>
+      ${table(['ID', 'EJE', 'PREGUNTA', 'RESPUESTAS', 'ERRORES', '% ACIERTOS'], difficultyRows, 'Sin respuestas contestadas para estos filtros.')}</section>
+      <section class="panel"><div class="panel-title"><div><h3>Resultados por año y período</h3><p>Los promedios solo consideran intentos finalizados.</p></div></div>
+      ${table(['AÑO', 'PERÍODO', 'ESTUDIANTES', 'INTENTOS', 'PROMEDIO', 'MÍNIMA', 'MÁXIMA'], periodRows, 'Sin resultados por período.')}</section>
+      <section class="panel"><div class="panel-title"><div><h3>Resultados por curso/grupo</h3></div></div>
+      ${table(['CURSO/GRUPO', 'AÑO', 'PERÍODO', 'ESTUDIANTES', 'INTENTOS', 'PROMEDIO', 'MÍNIMA', 'MÁXIMA'], courseRows, 'Sin resultados por curso/grupo.')}</section>
+      <section class="panel"><div class="panel-title"><div><h3>Calificaciones e historial por estudiante</h3><p>Selecciona un estudiante para restringir el historial individual.</p></div></div>
+      ${table(['ESTUDIANTE', 'USUARIO', 'INTENTOS', 'PROMEDIO', 'MÍNIMA', 'MÁXIMA'], studentRows, 'Sin calificaciones por estudiante.')}</section>`;
     $('#page-content').innerHTML = `${heading(title, intro)}
-      ${ownOnly && !historyPage ? `<div class="metric-grid">${metric('Evaluaciones finalizadas', grades.length, 'En tu historial', '✓')}${metric('Promedio', average, 'Sobre tus calificaciones', '↗')}${metric('Aprobadas', items.filter(item => item.status === 'COMPLETED' && Number(item.grade) >= Number(item.passing_grade || 3)).length, 'Según la nota mínima', '★')}${metric('En curso', items.filter(item => item.status === 'IN_PROGRESS').length, 'Intentos activos', '◷')}</div>` : ''}
-      ${ownOnly ? tablePanel : `<section class="panel"><div class="panel-title"><div><h3>Registro de resultados</h3><p>Resultados disponibles para tu rol.</p></div>${exportButton}</div>${toolbar('Buscar estudiante o cuestionario', filters)}${table(columns, rows, 'Aún no se han registrado resultados.')}</section>`}`;
+      <div class="metric-grid">${metric('Estudiantes evaluados', summary.students_evaluated || 0, 'Personas distintas', '♙')}
+      ${metric('Intentos finalizados', summary.completed_attempts || 0, 'Se excluyen en curso del promedio', '✓')}
+      ${metric('Promedio', summary.average_grade == null ? '—' : Number(summary.average_grade).toFixed(2), 'Calificaciones finalizadas', '↗')}
+      ${metric('Aprobados / no aprobados', `${summary.passed || 0} / ${summary.failed || 0}`, 'Según umbral del cuestionario', '★')}
+      ${metric('Mínima / máxima', `${summary.minimum_grade ?? '—'} / ${summary.maximum_grade ?? '—'}`, 'Sobre la escala configurada', '⇵')}</div>
+      ${exportButtons}${tablePanel}${ownOnly ? '' : reportTables}`;
     bindTableFilters();
-    const reloadReport = () => {
-      app.reportFilters = {
-        year: $('[data-report-year]', $('#page-content'))?.value.trim() || '',
-        course: $('[data-report-course]', $('#page-content'))?.value.trim() || '',
-        axis: $('[data-report-axis]', $('#page-content'))?.value.trim() || '',
-      };
-      navigate(app.page);
-    };
-    $$('[data-report-year], [data-report-course], [data-report-axis]', $('#page-content')).forEach(input => {
-      input.addEventListener('change', reloadReport);
-      input.addEventListener('keydown', event => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          reloadReport();
-        }
+    $$('[data-report-filter]', $('#page-content')).forEach(input => {
+      input.addEventListener('change', () => {
+        const key = input.dataset.reportFilter;
+        app.reportFilters[key] = input.value;
+        const descendants = {
+          year: ['period', 'course', 'axis', 'student'],
+          period: ['course', 'axis', 'student'],
+          course: ['axis', 'student'],
+          axis: ['student'],
+        }[key] || [];
+        descendants.forEach(child => { app.reportFilters[child] = ''; });
+        app.reportPage = 1;
+        navigate(app.page);
       });
     });
   }
@@ -837,10 +881,12 @@
       <div class="field full"><label for="quiz-description">Descripción</label><textarea id="quiz-description" name="description">${escapeHtml(quiz?.description || '')}</textarea></div>
       ${field('Fecha y hora de apertura', 'opens_at', dateInputValue(quiz?.opens_at), 'datetime-local', true)}
       ${field('Fecha y hora de cierre', 'closes_at', dateInputValue(quiz?.closes_at), 'datetime-local', true)}
+      ${field('Período académico', 'academic_period', quiz?.academic_period || '', 'text', false, false, 'placeholder="Ej. 2026-2"')}
+      ${field('Curso o grupo', 'course_group', quiz?.course_group || '', 'text', false, false, 'placeholder="Ej. Sexto A"')}
       ${field('Duración (minutos)', 'duration_minutes', quiz?.duration_minutes ?? 60, 'number', true, false, 'min="1" step="1')}
       ${field('Intentos permitidos', 'attempts_allowed', quiz?.attempts_allowed ?? 1, 'number', true, false, 'min="1" step="1')}
-      ${field('Nota máxima', 'max_grade', quiz?.max_grade ?? 5, 'number', true, false, 'min="0.01" max="100" step="0.01')}
-      ${field('Nota mínima para aprobar', 'passing_grade', quiz?.passing_grade ?? 3, 'number', true, false, 'min="0" max="100" step="0.01')}
+      ${field('Nota máxima (escala de 0 a 5)', 'max_grade', quiz?.max_grade ?? 5, 'number', true, false, 'min="0.01" max="5" step="0.01')}
+      ${field('Nota mínima para aprobar', 'passing_grade', quiz?.passing_grade ?? 3, 'number', true, false, 'min="0" max="5" step="0.01')}
       <div class="field full"><label for="quiz-questions">Preguntas * <span class="field-hint">Mantén presionada Ctrl (Windows) o ⌘ (Mac) para seleccionar varias.</span></label>
         <select id="quiz-questions" name="question_ids" multiple required size="6">${quizQuestions.map(question => `<option value="${question.id}" ${selectedIds.has(question.id) ? 'selected' : ''}>${escapeHtml(question.category_name)}${question.is_active ? '' : ' (inactiva)'} · ${escapeHtml(question.stem.slice(0, 110))}</option>`).join('')}</select></div>
       <div class="field full"><label><input type="checkbox" name="is_active" ${quiz?.is_active ? 'checked' : ''}> Cuestionario habilitado</label><span class="field-hint">Solo se mostrará dentro de su ventana de disponibilidad.</span></div>
@@ -942,6 +988,8 @@
           attempts_allowed: Number(values.attempts_allowed),
           max_grade: values.max_grade,
           passing_grade: values.passing_grade,
+          academic_period: values.academic_period.trim(),
+          course_group: values.course_group.trim(),
           question_ids: [...form.elements.question_ids.selectedOptions].map(option => Number(option.value)),
           is_active: form.elements.is_active.checked,
         };
@@ -1245,6 +1293,7 @@
       const result = await api.post('imports/commit/', {
         file_name: app.importDraft.fileName,
         rows: app.importDraft.rows,
+        quiz_id: $('[data-import-destination-quiz]')?.value || $('#import-destination-quiz')?.value || '',
       });
       toast(`Se importaron ${result.successful} preguntas correctamente.`);
       app.importDraft = null;
@@ -1265,18 +1314,6 @@
         : '<div class="empty-state">Esta importación no registró errores.</div>';
       modal('Errores de importación', record.file_name, body, { footer: false });
     } catch (error) { toast(error.message, 'error'); }
-  }
-
-  function exportResults() {
-    const rows = $$('tbody tr', $('#page-content')).filter(row => !row.hidden).map(row =>
-      [...row.querySelectorAll('td')].map(cell => `"${cell.innerText.trim().replace(/"/g, '""')}"`).join(','));
-    const header = [...$$('thead th', $('#page-content'))].map(cell => `"${cell.innerText.trim().replace(/"/g, '""')}"`).join(',');
-    const blob = new Blob([`\uFEFF${[header, ...rows].join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `resultados-saber-tyt-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(link.href);
   }
 
   async function downloadTemplate() {
@@ -1409,9 +1446,13 @@
       else if (action === 'import-errors') showImportErrors(id);
       else if (action === 'download-template') downloadTemplate();
       else if (action === 'attempt-detail') showAttemptDetails(id);
-      else if (action === 'export-results') exportResults();
-      else if (action === 'report-clear') {
+      else if (action === 'export-report') await exportReport(actionElement.dataset.reportType);
+      else if (action === 'report-page') {
+        app.reportPage = Number(actionElement.dataset.pageNumber) || 1;
+        navigate(app.page);
+      } else if (action === 'report-clear') {
         app.reportFilters = {};
+        app.reportPage = 1;
         navigate(app.page);
       }
     } catch (error) {
